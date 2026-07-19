@@ -1,4 +1,4 @@
-.PHONY: test build build-mcp test-integration test-browser vet race
+.PHONY: test build build-mcp test-integration test-browser test-web vet race
 
 build:
 	go build -o bin/tuile ./cmd/tuile
@@ -8,6 +8,9 @@ build-mcp:
 
 test:
 	go test ./...
+
+test-web:
+	cd web && node --test session-state.test.js
 
 vet:
 	go vet ./...

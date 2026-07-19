@@ -44,6 +44,10 @@ go test -tags=integration ./test/integration/... -count=1
 
 Browser tests call `t.Skip` when Chrome/chromedp is unavailable locally. **CI should install Chromium** (see Tuile’s `.github/workflows/ci.yml`).
 
+For manual viewer memory verification (many sessions, long soak), see [viewer-memory-soak.md](viewer-memory-soak.md).
+
+Client-side prune helpers have fast Node tests: `make test-web`.
+
 ## Pre-commit vs CI
 
 Browser and full integration tests are **slow** and need Chrome. Do **not** run them in pre-commit hooks — use **GitHub Actions** (or your CI) instead. Keep pre-commit for lint and fast unit tests.

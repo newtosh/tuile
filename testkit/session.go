@@ -55,6 +55,25 @@ func (s *Server) NewSession(t *testing.T, workspace string) *Session {
 	}
 }
 
+// DeleteSession closes a session via DELETE /v1/sessions/{id}.
+func (s *Server) DeleteSession(t *testing.T, id string) {
+	t.Helper()
+	req, err := http.NewRequest(http.MethodDelete, s.URL+"/v1/sessions/"+id, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Authorization", "Bearer "+string(s.Boot))
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNoContent {
+		b, _ := io.ReadAll(resp.Body)
+		t.Fatalf("delete session status = %d body=%s", resp.StatusCode, b)
+	}
+}
+
 // WaitForShell blocks until the session PTY shows an interactive shell prompt.
 func (sess *Session) WaitForShell(t *testing.T) {
 	t.Helper()
