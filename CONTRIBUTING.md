@@ -59,6 +59,14 @@ Every push and pull request runs:
 
 Please make sure both jobs pass before requesting review.
 
+## Copilot code review
+
+Pull requests targeting `main` automatically request a review from **Copilot** (repository ruleset: “Copilot auto code review”). Reviews also run on new pushes to an open PR.
+
+- Copilot uses `.github/copilot-instructions.md` and path-specific files under `.github/instructions/`.
+- Reviews are **advisory** and do not block merge; they may be skipped when your Copilot premium-request quota is exhausted.
+- To request a review manually: `gh pr edit --add-reviewer @copilot`
+
 ## Questions
 
 Open a GitHub issue for bugs, feature ideas, or questions about how something should work.

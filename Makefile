@@ -10,7 +10,7 @@ test:
 	go test ./...
 
 test-web:
-	cd web && node --test session-state.test.js
+	cd web && node --test *.test.js
 
 vet:
 	go vet ./...
