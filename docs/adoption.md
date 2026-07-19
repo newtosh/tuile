@@ -7,7 +7,7 @@ How to install Tuile, depend on it from another Go project, and track whether pe
 ### Go install (recommended for CLI)
 
 ```bash
-go install github.com/newtosh/tuile/cmd/tuile@v0.1.0
+go install github.com/newtosh/tuile/cmd/tuile@v0.1.1
 tuile version
 ```
 
@@ -18,7 +18,7 @@ Use `@latest` after the first release, or pin a semver tag in scripts and CI.
 Download `tuile` (and `tuile-mcp`) for your platform from [GitHub Releases](https://github.com/newtosh/tuile/releases).
 
 ```bash
-curl -sL https://github.com/newtosh/tuile/releases/download/v0.1.0/tuile-linux-amd64 -o tuile
+curl -sL https://github.com/newtosh/tuile/releases/download/v0.1.1/tuile-linux-amd64 -o tuile
 chmod +x tuile
 ```
 
@@ -41,7 +41,7 @@ Tuile’s main adoption path for **other repos** is the public `testkit` package
 ### 1. Add the module
 
 ```bash
-go get github.com/newtosh/tuile@v0.1.0
+go get github.com/newtosh/tuile@v0.1.1
 ```
 
 Sibling repo during development:
