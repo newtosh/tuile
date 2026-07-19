@@ -4,11 +4,11 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"strings"
 
 	"github.com/creack/pty"
 	"github.com/newtosh/tuile/internal/config"
+	"github.com/newtosh/tuile/internal/workpath"
 )
 
 // Master wraps a PTY file descriptor and child process.
@@ -22,7 +22,7 @@ type Master struct {
 
 // Start launches shell in a new PTY with the given workspace and dimensions.
 func Start(workspace string, sess config.Session) (*Master, error) {
-	workspace, err := resolveWorkspace(workspace)
+	workspace, err := workpath.Resolve(workspace)
 	if err != nil {
 		return nil, err
 	}
@@ -82,24 +82,6 @@ func (m *Master) Close() error {
 		_, _ = m.Cmd.Process.Wait()
 	}
 	return nil
-}
-
-func resolveWorkspace(workspace string) (string, error) {
-	if workspace == "" {
-		return "", fmt.Errorf("workspace path is required")
-	}
-	abs, err := filepath.Abs(workspace)
-	if err != nil {
-		return "", fmt.Errorf("workspace path: %w", err)
-	}
-	info, err := os.Stat(abs)
-	if err != nil {
-		return "", fmt.Errorf("workspace not found: %w", err)
-	}
-	if !info.IsDir() {
-		return "", fmt.Errorf("workspace is not a directory: %s", abs)
-	}
-	return abs, nil
 }
 
 // sessionEnv builds PTY environment with a real terminal type (not dumb).
