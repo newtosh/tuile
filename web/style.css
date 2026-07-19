@@ -524,6 +524,38 @@ button.primary {
   width: 2rem;
   height: 2rem;
   padding: 0;
+  transition:
+    color 0.15s ease,
+    border-color 0.15s ease,
+    background 0.15s ease,
+    transform 0.1s ease;
+}
+
+#refresh-sessions:active:not(:disabled) {
+  transform: scale(0.9);
+}
+
+#refresh-sessions.is-refreshing {
+  color: var(--observe);
+  border-color: color-mix(in srgb, var(--observe) 50%, var(--border));
+  background: var(--observe-dim);
+  cursor: wait;
+}
+
+#refresh-sessions.is-refreshing .icon-slot svg {
+  animation: loader-spin 0.75s linear infinite;
+}
+
+#refresh-sessions.is-refresh-ok {
+  color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
+  background: var(--accent-dim);
+}
+
+#refresh-sessions.is-refresh-error {
+  color: var(--danger);
+  border-color: color-mix(in srgb, var(--danger) 45%, var(--border));
+  background: color-mix(in srgb, var(--danger) 12%, transparent);
 }
 
 .bootstrap-form {

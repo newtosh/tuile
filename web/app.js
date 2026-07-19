@@ -21,6 +21,8 @@ const LOAD_TOTAL_TIMEOUT_MS = 25000;
 const LOAD_ATTACH_TIMEOUT_MS = 12000;
 const LOAD_WS_CONNECT_TIMEOUT_MS = 10000;
 const LOAD_SNAPSHOT_TIMEOUT_MS = 8000;
+const REFRESH_SPIN_MIN_MS = 450;
+const REFRESH_BUTTON_TIMEOUT_MS = 8000;
 const sessionCache = new Map();
 
 const badge = document.getElementById("mode-badge");
@@ -1407,7 +1409,7 @@ async function refreshSessions({ autoAttach = true } = {}) {
       setMode("setup");
       setStatus("Enter the bootstrap secret printed by tuile serve.");
     }
-    return;
+    return false;
   }
 
   try {
@@ -1417,7 +1419,7 @@ async function refreshSessions({ autoAttach = true } = {}) {
         setMode("setup", "error");
         setStatus("Bootstrap secret rejected — update it and save.");
       }
-      return;
+      return false;
     }
     const body = await res.json();
     syncSessions(body.sessions || []);
@@ -1441,7 +1443,7 @@ async function refreshSessions({ autoAttach = true } = {}) {
 
     if (autoAttach && !sessionId && knownSessions.length === 1) {
       await attachToSession(knownSessions[0].session_id);
-      return;
+      return true;
     }
 
     if (!sessionId && knownSessions.length === 0) {
@@ -1453,9 +1455,89 @@ async function refreshSessions({ autoAttach = true } = {}) {
       setMode("idle");
       setStatus("Multiple sessions available — select one to tail.");
     }
+    return true;
   } catch (err) {
     setStatus(`Session discovery failed: ${err.message}`);
+    return false;
   }
+}
+
+let refreshButtonTimer = null;
+let refreshButtonFeedback = null;
+
+function clearRefreshButtonTimers() {
+  if (refreshButtonTimer) {
+    clearTimeout(refreshButtonTimer);
+    refreshButtonTimer = null;
+  }
+}
+
+function setRefreshButtonVisual(state) {
+  refreshSessionsBtn.classList.remove("is-refreshing", "is-refresh-ok", "is-refresh-error");
+  if (state) {
+    refreshSessionsBtn.classList.add(state);
+  }
+  const busy = state === "is-refreshing";
+  refreshSessionsBtn.disabled = busy;
+  refreshSessionsBtn.setAttribute("aria-busy", String(busy));
+}
+
+function finishRefreshButtonFeedback(result) {
+  if (!refreshButtonFeedback?.active) {
+    return;
+  }
+  refreshButtonFeedback.active = false;
+  clearRefreshButtonTimers();
+
+  if (result === "timeout") {
+    setRefreshButtonVisual("is-refresh-error");
+    refreshButtonTimer = setTimeout(() => setRefreshButtonVisual(null), 1400);
+    return;
+  }
+
+  setRefreshButtonVisual(result === "ok" ? "is-refresh-ok" : "is-refresh-error");
+  refreshButtonTimer = setTimeout(() => setRefreshButtonVisual(null), result === "ok" ? 700 : 1400);
+}
+
+async function handleRefreshSessionsClick() {
+  if (refreshSessionsBtn.disabled) {
+    return;
+  }
+
+  clearRefreshButtonTimers();
+  if (refreshButtonFeedback?.active) {
+    refreshButtonFeedback.active = false;
+  }
+
+  const feedback = { active: true };
+  refreshButtonFeedback = feedback;
+  setRefreshButtonVisual("is-refreshing");
+
+  const started = performance.now();
+  refreshButtonTimer = setTimeout(() => {
+    if (feedback.active) {
+      finishRefreshButtonFeedback("timeout");
+    }
+  }, REFRESH_BUTTON_TIMEOUT_MS);
+
+  const ok = await refreshSessions({ autoAttach: false });
+  if (!feedback.active) {
+    return;
+  }
+
+  clearRefreshButtonTimers();
+
+  const remaining = REFRESH_SPIN_MIN_MS - (performance.now() - started);
+  if (remaining > 0) {
+    await new Promise((resolve) => {
+      refreshButtonTimer = setTimeout(resolve, remaining);
+    });
+  }
+  if (!feedback.active) {
+    return;
+  }
+
+  finishRefreshButtonFeedback(ok ? "ok" : "error");
 }
 
 function startPolling() {
@@ -1530,7 +1612,7 @@ loadingRetry.addEventListener("click", () => {
 });
 
 refreshSessionsBtn.addEventListener("click", () => {
-  refreshSessions({ autoAttach: false });
+  handleRefreshSessionsClick();
 });
 
 sessionSortSelect.addEventListener("change", () => {
