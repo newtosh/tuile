@@ -54,6 +54,7 @@ CI (`.github/workflows/ci.yml`) runs: `go mod tidy` check, `go vet`, both binary
 - Default bind is **loopback** (`127.0.0.1:7710`). Do not weaken origin checks or auth without explicit discussion.
 - Never commit `tuile.toml`, tokens, or secrets. `tuile.toml.example` is the template.
 - Do not log bearer tokens or bootstrap secrets.
+- Report security issues via [SECURITY.md](SECURITY.md) (private vulnerability reporting), not public issues.
 
 ### API stability
 

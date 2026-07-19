@@ -310,4 +310,4 @@ MIT — see [LICENSE](LICENSE). Third-party components are listed in [NOTICES.md
 
 ## Contributing
 
-See [CONTRIBUTING.md](CONTRIBUTING.md).
+See [CONTRIBUTING.md](CONTRIBUTING.md). Security reports: [SECURITY.md](SECURITY.md).
