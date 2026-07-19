@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Tuile — Session Viewer</title>
+    <link rel="icon" href="/assets/favicon.ico" sizes="any" />
+    <link rel="icon" href="/assets/favicon.svg" type="image/svg+xml" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600&family=Outfit:wght@400;500;600&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="/assets/style.css" />
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/css/xterm.css" />
+  </head>
+  <body>
+    <header>
+      <div class="header-brand">
+        <svg class="brand-mark" viewBox="0 0 32 32" aria-hidden="true">
+          <rect x="6" y="6" width="9" height="9" rx="1.5" fill="var(--accent)" />
+          <rect x="17" y="6" width="9" height="9" rx="1.5" fill="var(--accent)" opacity="0.82" />
+          <rect x="6" y="17" width="9" height="9" rx="1.5" fill="var(--accent)" opacity="0.82" />
+          <rect x="17" y="17" width="9" height="9" rx="1.5" fill="var(--accent)" />
+        </svg>
+        <h1>Tuile</h1>
+        <span id="mode-badge" class="badge">connecting</span>
+      </div>
+      <div class="header-actions">
+        <div class="settings-wrap">
+          <button
+            id="settings-toggle"
+            type="button"
+            class="icon-btn"
+            aria-expanded="false"
+            aria-haspopup="menu"
+            aria-controls="settings-menu"
+            title="Settings"
+          >
+            <span id="settings-toggle-icon" class="icon-slot"></span>
+          </button>
+          <div id="settings-menu" class="settings-menu" role="menu" hidden>
+            <div class="menu-field">
+              <label class="menu-label" for="font-family">Font</label>
+              <select id="font-family">
+                <option value="'Fira Code', monospace" selected>Fira Code</option>
+                <option value="'JetBrains Mono', monospace">JetBrains Mono</option>
+                <option value="'IBM Plex Mono', monospace">IBM Plex Mono</option>
+                <option value="monospace">System mono</option>
+              </select>
+            </div>
+            <div class="menu-field">
+              <label class="menu-label" for="font-size">Text size</label>
+              <select id="font-size">
+                <option value="auto">Auto-fit</option>
+                <option value="18">18px</option>
+                <option value="20" selected>20px</option>
+                <option value="22">22px</option>
+                <option value="24">24px</option>
+                <option value="28">28px</option>
+              </select>
+            </div>
+            <div class="menu-row">
+              <div class="menu-label-row">
+                <span class="menu-label" id="webgl-label">Enhanced rendering</span>
+                <span class="info-tip">
+                  <button
+                    type="button"
+                    class="info-tip-trigger icon-btn"
+                    aria-label="About enhanced rendering"
+                    aria-describedby="webgl-info-tooltip"
+                  >
+                    <span id="webgl-info-icon" class="icon-slot"></span>
+                  </button>
+                  <span id="webgl-info-tooltip" class="info-tip-popover menu-note" role="tooltip">
+                    WebGL renderer for sharper Unicode and box-drawing. Programming ligatures (e.g.
+                    <code>=&gt;</code>) are not supported in the browser viewer yet.
+                  </span>
+                </span>
+              </div>
+              <label class="toggle" aria-labelledby="webgl-label">
+                <input type="checkbox" id="webgl-renderer" role="switch" aria-checked="false" />
+                <span class="toggle-track" aria-hidden="true"></span>
+              </label>
+            </div>
+            <p class="menu-note menu-note-muted">
+              Sessions default to 120×36. Non-default sizes show as “resized” in the sidebar.
+            </p>
+            <div class="menu-divider" role="separator"></div>
+            <button id="takeover" type="button" class="menu-action primary" disabled>
+              <span class="icon-slot" data-icon="hand"></span>
+              <span>Take over</span>
+            </button>
+            <button id="release" type="button" class="menu-action" disabled>
+              <span class="icon-slot" data-icon="undo-2"></span>
+              <span>Release</span>
+            </button>
+            <button id="reconnect" type="button" class="menu-action">
+              <span class="icon-slot" data-icon="plug-zap"></span>
+              <span>Reconnect</span>
+            </button>
+          </div>
+        </div>
+      </div>
+    </header>
+    <div id="layout">
+      <aside id="session-panel">
+        <div class="panel-header">
+          <h2>Sessions</h2>
+          <div class="panel-actions">
+            <label class="sr-only" for="session-sort">Sort sessions</label>
+            <select id="session-sort" class="session-sort" title="Sort sessions">
+              <option value="created-desc">Newest</option>
+              <option value="created-asc">Oldest</option>
+              <option value="label-asc">Agent A–Z</option>
+              <option value="label-desc">Agent Z–A</option>
+              <option value="id-asc">Session ID</option>
+              <option value="duration-desc">Longest running</option>
+              <option value="duration-asc">Shortest running</option>
+            </select>
+            <button id="refresh-sessions" type="button" class="icon-btn" title="Refresh session list">
+              <span id="refresh-sessions-icon" class="icon-slot"></span>
+            </button>
+          </div>
+        </div>
+        <form id="bootstrap-form" class="bootstrap-form">
+          <label for="bootstrap-secret">Bootstrap secret</label>
+          <div class="bootstrap-row">
+            <input
+              id="bootstrap-secret"
+              type="password"
+              autocomplete="off"
+              placeholder="From tuile serve startup"
+            />
+            <button type="submit" class="icon-btn" title="Save bootstrap secret">
+              <span id="bootstrap-save-icon" class="icon-slot"></span>
+            </button>
+          </div>
+          <p class="hint">Needed to discover sessions. Saved in this browser only.</p>
+        </form>
+        <ul id="session-list" class="session-list"></ul>
+        <p id="session-empty" class="session-empty" hidden>No active sessions — waiting…</p>
+        <div class="session-panel-footer">
+          <label for="session-inactive-mins">Inactive after</label>
+          <input id="session-inactive-mins" type="number" min="1" max="1440" value="15" />
+          <span class="session-panel-footer-suffix">min</span>
+        </div>
+      </aside>
+      <main>
+        <div id="terminal-wrap">
+          <div id="terminal-grid-frame" class="terminal-grid-frame" hidden aria-hidden="true"></div>
+          <span id="terminal-grid-label" class="grid-frame-label" hidden aria-hidden="true"></span>
+        </div>
+        <div id="terminal-loading" class="terminal-loading" hidden aria-live="polite" aria-busy="false">
+          <div id="loading-spinner" class="loader" aria-hidden="true">
+            <span class="loader-ring"></span>
+            <span class="loader-pulse"></span>
+          </div>
+          <p id="loading-message" class="loading-message">Loading session…</p>
+          <button id="loading-retry" type="button" class="loading-retry" hidden>Retry connection</button>
+        </div>
+        <div id="terminal-placeholder" class="terminal-placeholder" hidden>
+          <p>Select a session to tail, or wait for one to appear.</p>
+        </div>
+      </main>
+    </div>
+    <footer id="status-bar">
+      <div class="status-zoom" role="group" aria-label="Viewport zoom">
+        <button id="zoom-out" type="button" class="status-btn" title="Zoom out (−)">
+          <span id="zoom-out-icon" class="icon-slot"></span>
+        </button>
+        <button id="zoom-reset" type="button" class="status-btn status-zoom-value" title="Reset zoom">
+          100%
+        </button>
+        <button id="zoom-in" type="button" class="status-btn" title="Zoom in (+)">
+          <span id="zoom-in-icon" class="icon-slot"></span>
+        </button>
+      </div>
+      <div id="status-message" class="status-message">Initializing…</div>
+    </footer>
+
+    <script src="https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/lib/xterm.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@xterm/addon-fit@0.10.0/lib/addon-fit.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@xterm/addon-unicode11@0.8.0/lib/addon-unicode11.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@xterm/addon-webgl@0.18.0/lib/addon-webgl.js"></script>
+    <script type="module" src="/assets/app.js"></script>
+  </body>
+</html>

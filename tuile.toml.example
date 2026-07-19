@@ -1,0 +1,12 @@
+# Copy to tuile.toml and customize. tuile.toml is gitignored (contains secrets).
+#
+#   cp tuile.toml.example tuile.toml
+
+bootstrap_secret = "change-me-to-a-long-random-string"
+
+# listen = "127.0.0.1:7710"
+
+# allowed_origins = [
+#   "http://127.0.0.1:7710",
+#   "http://localhost:7710",
+# ]

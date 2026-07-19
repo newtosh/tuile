@@ -1,0 +1,31 @@
+# Build output
+bin/
+*.exe
+*.test
+
+# Local config (secrets)
+tuile.toml
+
+# Go tooling
+coverage.out
+coverage.html
+*.prof
+*.out
+
+# Node (optional local xterm.js deps)
+node_modules/
+
+# OS and editor
+.DS_Store
+Thumbs.db
+*.swp
+*~
+.idea/
+.vscode/
+
+# Local screenshot / browser automation artifacts
+.playwright-mcp/
+tuile-*.png
+
+# Agent tooling (local only)
+.compound-engineering/
