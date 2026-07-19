@@ -23,7 +23,7 @@ See [README.md](README.md) for API examples, agent CLI setup, and viewer usage.
 3. Match existing code style and naming in the files you touch.
 4. Open a pull request with a short summary of **why** the change is needed and how you tested it.
 
-`main` is protected: pull requests required, `unit` and `integration` CI jobs must pass, no force-push or branch deletion. Maintainers can merge with squash after checks are green.
+`main` is protected: pull requests required, **one approving review**, and passing `unit`, `integration`, and `CodeQL` CI checks. No force-push or branch deletion. See [SECURITY.md](SECURITY.md) for vulnerability reporting.
 
 Bug fixes and small improvements are great first contributions. For larger features, open an issue or draft PR early so we can align on approach.
 
