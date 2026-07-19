@@ -1,0 +1,44 @@
+---
+description: Branch and PR workflow — never push directly to main
+alwaysApply: true
+---
+
+# Git workflow
+
+`main` has admin bypass for emergencies only. **All routine code changes use branches and pull requests.**
+
+## Required flow
+
+1. Branch from up-to-date `main`.
+2. Make focused commits on that branch.
+3. Push the branch and open a PR on GitHub.
+4. **Stop before merge.** The maintainer reviews the PR in the browser and merges manually.
+5. Do not push to `main`, squash-merge locally, or merge a PR unless the user explicitly asks.
+
+## Branch naming
+
+Use lowercase, hyphen-separated names with a type prefix:
+
+| Prefix | Use for |
+|--------|---------|
+| `feat/` | New features or user-visible behavior |
+| `fix/` | Bug fixes |
+| `chore/` | Tooling, CI, deps, repo hygiene |
+| `docs/` | Documentation only |
+| `refactor/` | Internal restructuring, no behavior change |
+| `test/` | Test-only changes |
+
+Examples: `feat/session-resize-api`, `fix/pty-close-race`, `chore/bump-actions-checkout`.
+
+Avoid vague names (`updates`, `wip`, `changes`). One logical change per branch when possible.
+
+## Pull requests
+
+- Title: imperative, concise (e.g. "Fix session close race on PTY shutdown").
+- Body: **why** the change is needed, what changed, how it was tested.
+- Wait for CI (`unit`, `integration`, `analyze`) to pass before requesting review.
+- After opening the PR, give the maintainer the URL and wait for browser review — do not auto-merge.
+
+## Exceptions
+
+Direct `main` pushes or admin bypass are only for explicit user-requested hotfixes or repo emergencies — not for normal agent work.

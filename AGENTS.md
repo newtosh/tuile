@@ -78,6 +78,7 @@ CI (`.github/workflows/ci.yml`) runs: `go mod tidy` check, `go vet`, both binary
 
 - **Do not commit** unless the user explicitly asks.
 - **Do not push** or open PRs unless asked.
+- **Never push directly to `main`.** Branch → PR → maintainer reviews in the browser → manual merge. See `.cursor/rules/git-workflow.mdc`.
 - Follow [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Recommended workflow (Compound Engineering skills)

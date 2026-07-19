@@ -18,12 +18,13 @@ See [README.md](README.md) for API examples, agent CLI setup, and viewer usage.
 
 ## Making changes
 
-1. Create a branch from `main`.
+1. Create a branch from `main` using a typed prefix (`feat/`, `fix/`, `chore/`, `docs/`, `refactor/`, `test/`) and a short hyphenated slug — e.g. `fix/session-close-race`.
 2. Keep changes focused — one logical change per pull request when possible.
 3. Match existing code style and naming in the files you touch.
 4. Open a pull request with a short summary of **why** the change is needed and how you tested it.
+5. Wait for CI to pass; the maintainer reviews and merges in the browser.
 
-`main` is protected: pull requests required and passing `unit`, `integration`, and `CodeQL` CI checks. No force-push or branch deletion. Repository admins can bypass these rules for solo maintenance until external contributors arrive; bump `required_approving_review_count` to **1** when that happens. See [SECURITY.md](SECURITY.md) for vulnerability reporting.
+`main` is protected: pull requests required and passing `unit`, `integration`, and `CodeQL` CI checks. No force-push or branch deletion. Repository admins can bypass protection for emergencies, but **routine work always goes through a PR** (see `.cursor/rules/git-workflow.mdc`). See [SECURITY.md](SECURITY.md) for vulnerability reporting.
 
 Bug fixes and small improvements are great first contributions. For larger features, open an issue or draft PR early so we can align on approach.
 
