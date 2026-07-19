@@ -1,6 +1,7 @@
 {
   "name": "tuile-web",
   "private": true,
+  "type": "module",
   "description": "Browser terminal viewer for Tuile (xterm.js loaded via CDN in index.html)",
   "dependencies": {
     "@xterm/addon-fit": "^0.10.0",

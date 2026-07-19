@@ -1,10 +1,16 @@
 import { mountIcon } from "./icons.js";
 import { sessions as $sessions, activeSessionId as $activeSessionId, uiStatus, uiBadge } from "./state.js";
+import {
+  ACK_STORAGE_KEY,
+  loadAckMap,
+  pruneClientSessionState,
+  saveAckMap,
+} from "./session-state.js";
 
 const params = new URLSearchParams(window.location.search);
 const BOOTSTRAP_KEY = "tuile_bootstrap";
 const SESSION_SORT_KEY = "tuile_session_sort";
-const SESSION_ACK_KEY = "tuile_session_ack";
+const SESSION_ACK_KEY = ACK_STORAGE_KEY;
 const SESSION_INACTIVE_MINS_KEY = "tuile_session_inactive_mins";
 const SESSION_SORT_VALUES = [
   "created-desc",
@@ -435,6 +441,13 @@ function updateSessionListActive() {
 
 function syncSessions(list) {
   knownSessions = list;
+  pruneClientSessionState({ cache: sessionCache, sessions: list });
+  if (params.get("debug") === "memory") {
+    const ackCount = Object.keys(loadAckMap()).length;
+    console.debug(
+      `[tuile] memory debug: sessions=${list.length} cache=${sessionCache.size} ack=${ackCount}`
+    );
+  }
   $sessions.set(list);
 }
 
@@ -484,22 +497,13 @@ function saveInactiveMins(value) {
   localStorage.setItem(SESSION_INACTIVE_MINS_KEY, String(value));
 }
 
-function loadAckMap() {
-  try {
-    const raw = localStorage.getItem(SESSION_ACK_KEY);
-    return raw ? JSON.parse(raw) : {};
-  } catch {
-    return {};
-  }
-}
-
 function acknowledgeSession(id) {
   if (!id) {
     return;
   }
   const map = loadAckMap();
   map[id] = new Date().toISOString();
-  localStorage.setItem(SESSION_ACK_KEY, JSON.stringify(map));
+  saveAckMap(map);
 }
 
 function computeSessionStatus(sess) {
