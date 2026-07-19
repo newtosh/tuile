@@ -1,5 +1,8 @@
 # Tuile
 
+[![Go Reference](https://pkg.go.dev/badge/github.com/newtosh/tuile.svg)](https://pkg.go.dev/github.com/newtosh/tuile)
+[![CI](https://github.com/newtosh/tuile/actions/workflows/ci.yml/badge.svg)](https://github.com/newtosh/tuile/actions/workflows/ci.yml)
+
 **Local PTY bridge for terminal UI development.**
 
 Building a TUI? Tuile attaches one real PTY per workspace and exposes it two ways: a **browser viewer** to see what your app actually renders, and a **headless HTTP API** to read screen state, send keystrokes, and wait for output — so you can develop, debug, and test without babysitting a terminal window.
@@ -25,6 +28,20 @@ Typical uses:
 | **Watch a session** | `http://127.0.0.1:7710/view?session=<id>&token=<token>` |
 | **Automate** | `POST /v1/sessions` → `POST .../input` → poll `GET .../screen` or block on `POST .../wait` |
 | **Test downstream** | See [docs/testing-with-tuile.md](docs/testing-with-tuile.md) for the Go `testkit` package (`github.com/newtosh/tuile/testkit`) |
+| **Install** | `go install github.com/newtosh/tuile/cmd/tuile@latest` — see [docs/adoption.md](docs/adoption.md) |
+
+## Install
+
+```bash
+# CLI (pin a release tag in production scripts)
+go install github.com/newtosh/tuile/cmd/tuile@v0.1.0
+tuile version
+
+# Or download binaries from GitHub Releases
+# https://github.com/newtosh/tuile/releases
+```
+
+**Downstream Go projects:** `go get github.com/newtosh/tuile@v0.1.0` and import `github.com/newtosh/tuile/testkit` — full guide in [docs/adoption.md](docs/adoption.md).
 
 ## How it works
 
@@ -232,7 +249,7 @@ make test-integration  # integration tests (browser tests need Chrome)
 make build
 ```
 
-See [docs/testing-with-tuile.md](docs/testing-with-tuile.md) for the `testkit` package and CI setup for downstream projects.
+See [docs/testing-with-tuile.md](docs/testing-with-tuile.md) for the `testkit` package and CI setup for downstream projects. Adoption and metrics: [docs/adoption.md](docs/adoption.md).
 
 Engine spike notes: [docs/spike-u0.md](docs/spike-u0.md)
 

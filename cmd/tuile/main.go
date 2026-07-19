@@ -24,6 +24,8 @@ func main() {
 	}
 
 	switch os.Args[1] {
+	case "version":
+		fmt.Println(Version)
 	case "session":
 		if len(os.Args) < 3 {
 			usage()
@@ -195,6 +197,7 @@ func runServe(args []string) error {
 
 func usage() {
 	fmt.Fprintf(os.Stderr, "usage:\n")
+	fmt.Fprintf(os.Stderr, "  tuile version\n")
 	fmt.Fprintf(os.Stderr, "  tuile session start [--cli claude|codex|cursor-cli|copilot-cli|opencode] <workspace>\n")
 	fmt.Fprintf(os.Stderr, "  tuile serve [--force] [flags]\n")
 }
