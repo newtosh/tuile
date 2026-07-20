@@ -6,6 +6,7 @@ import {
   CHROME_MINIMAL,
   CHROME_OS,
   OS_STYLE_MACOS,
+  OS_STYLE_WINDOWS,
   OS_STYLE_WIREFRAME,
   COMPACT_SUPER_SAMPLE,
   defaultExportOptions,
@@ -63,6 +64,31 @@ describe("export-options", () => {
       chrome_os_style: OS_STYLE_MACOS,
     });
     assert.equal(opts.chrome_os_style, OS_STYLE_MACOS);
+  });
+
+  it("windows os style validates", () => {
+    const opts = validateExportOptions({
+      ...defaultExportOptions(),
+      chrome_preset: CHROME_OS,
+      chrome_os_style: OS_STYLE_WINDOWS,
+    });
+    assert.equal(opts.chrome_os_style, OS_STYLE_WINDOWS);
+  });
+
+  it("windows layout insets terminal content like macOS", () => {
+    const screen = { cols: 10, rows: 2, lines: ["a", "b"] };
+    const windows = computeLayout(screen, {
+      ...defaultExportOptions(),
+      chrome_preset: CHROME_OS,
+      chrome_os_style: OS_STYLE_WINDOWS,
+    });
+    assert.equal(windows.osStyle, OS_STYLE_WINDOWS);
+    assert.equal(windows.termInset, 8 * windows.renderScale);
+    assert.equal(windows.titleBar, 36 * windows.renderScale);
+    assert.equal(windows.termY, windows.titleBar + windows.termInset);
+    assert.equal(windows.termX, windows.termInset);
+    assert.equal(windows.renderOuterW, windows.termW + windows.termInset * 2);
+    assert.equal(windows.renderOuterH, windows.titleBar + windows.termH + windows.termInset * 2);
   });
 
   it("macos layout insets terminal content from window edge", () => {

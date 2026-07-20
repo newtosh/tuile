@@ -194,6 +194,89 @@ export function macosContentPadding() {
   return macosTerminalInset();
 }
 
+export function windowsTitleBarHeight() {
+  return WINDOWS_CHROME.tabRowHeight;
+}
+
+export function windowsWindowRadius() {
+  return WINDOWS_CHROME.windowRadius;
+}
+
+export function windowsTerminalInset() {
+  return WINDOWS_CHROME.terminalInset;
+}
+
+// Grounded in Windows Terminal defaults (Campbell scheme, tabs-in-titlebar layout).
+// References:
+// - showTabsInTitlebar default true: learn.microsoft.com/windows/terminal/customize-settings/appearance
+// - tab.background terminalBackground (seamless active tab): learn.microsoft.com/windows/terminal/customize-settings/themes
+// - Default dark theme 1.16+: github.com/microsoft/terminal/pull/13743
+// - Tab row height 36px: microsoft/terminal#9093 (MinMaxCloseControl matches tab strip)
+// - Caption buttons 40px wide: TerminalApp/MinMaxCloseControl.xaml
+// - Background #0C0C0C: Campbell color scheme / learn.microsoft.com terminal color schemes
+// - Dark titlebar matches terminal: microsoft/terminal#14536, discussion #14844
+// - Win11 window radius 8px: learn.microsoft.com windows/apps/design/basics/titlebar-design
+export const WINDOWS_CHROME = {
+  tabRowHeight: 36,
+  windowRadius: 8,
+  terminalInset: 8,
+  tabInsetX: 8,
+  tabPaddingX: 10,
+  tabMinWidth: 72,
+  captionButtonWidth: 40,
+  titleFontSize: 12,
+  shadowBlur: 24,
+  shadowOffsetY: 16,
+  shadowColor: "rgba(0, 0, 0, 0.24)",
+  borderDark: "rgba(255, 255, 255, 0.06)",
+  borderLight: "rgba(0, 0, 0, 0.12)",
+  tabTextDark: "#CCCCCC",
+  tabTextLight: "#1A1A1A",
+  tabRowSeparatorDark: "#333333",
+  tabRowSeparatorLight: "#E5E5E5",
+  captionIconDark: "rgba(255, 255, 255, 0.9)",
+  captionIconLight: "rgba(0, 0, 0, 0.9)",
+  windowBgDark: "#0C0C0C",
+  windowBgLight: "#F3F3F3",
+};
+
+export function windowsChromePalette(opts, renderScale = 1) {
+  const frame = viewerFrameMetrics(renderScale, opts);
+  const light = opts?.theme === "light";
+  const windowBg = frame.termBg || (light ? WINDOWS_CHROME.windowBgLight : WINDOWS_CHROME.windowBgDark);
+  const titleBarHeight = WINDOWS_CHROME.tabRowHeight * renderScale;
+  return {
+    windowBg,
+    titleBarBg: windowBg,
+    border: light ? WINDOWS_CHROME.borderLight : WINDOWS_CHROME.borderDark,
+    tabText: light ? WINDOWS_CHROME.tabTextLight : WINDOWS_CHROME.tabTextDark,
+    tabRowSeparator: light ? WINDOWS_CHROME.tabRowSeparatorLight : WINDOWS_CHROME.tabRowSeparatorDark,
+    captionColor: light ? WINDOWS_CHROME.captionIconLight : WINDOWS_CHROME.captionIconDark,
+    titleFontSize: WINDOWS_CHROME.titleFontSize * renderScale,
+    tabInsetX: WINDOWS_CHROME.tabInsetX * renderScale,
+    tabPaddingX: WINDOWS_CHROME.tabPaddingX * renderScale,
+    tabMinWidth: WINDOWS_CHROME.tabMinWidth * renderScale,
+    titleBarHeight,
+    windowRadius: WINDOWS_CHROME.windowRadius * renderScale,
+    captionButtonWidth: WINDOWS_CHROME.captionButtonWidth * renderScale,
+    shadowBlur: WINDOWS_CHROME.shadowBlur * renderScale,
+    shadowOffsetY: WINDOWS_CHROME.shadowOffsetY * renderScale,
+    shadowColor: WINDOWS_CHROME.shadowColor,
+    terminalInset: WINDOWS_CHROME.terminalInset * renderScale,
+    iconScale: renderScale,
+  };
+}
+
+export function osTerminalInset(osStyle) {
+  if (osStyle === OS_STYLE_MACOS) {
+    return macosTerminalInset();
+  }
+  if (osStyle === OS_STYLE_WINDOWS) {
+    return windowsTerminalInset();
+  }
+  return 0;
+}
+
 export function defaultExportOptions(viewer = {}) {
   return {
     chrome_preset: CHROME_MINIMAL,
@@ -219,9 +302,6 @@ export function validateExportOptions(opts) {
   if (o.chrome_preset === CHROME_OS) {
     if (![OS_STYLE_WIREFRAME, OS_STYLE_MACOS, OS_STYLE_WINDOWS].includes(o.chrome_os_style)) {
       throw new Error(`invalid chrome_os_style: ${o.chrome_os_style}`);
-    }
-    if (o.chrome_os_style === OS_STYLE_WINDOWS) {
-      throw new Error("windows chrome is not available yet");
     }
   }
   if (![BACKGROUND_TRANSPARENT, BACKGROUND_PRESET, BACKGROUND_CUSTOM].includes(o.background_mode)) {
@@ -262,6 +342,9 @@ export function titleBarHeight(chrome, osStyle = OS_STYLE_WIREFRAME) {
   }
   if (osStyle === OS_STYLE_MACOS) {
     return macosTitleBarHeight();
+  }
+  if (osStyle === OS_STYLE_WINDOWS) {
+    return windowsTitleBarHeight();
   }
   return 36;
 }

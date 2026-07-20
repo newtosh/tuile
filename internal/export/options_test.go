@@ -90,6 +90,25 @@ func pngDecodeRGBA(data []byte) (*image.RGBA, error) {
 	return out, nil
 }
 
+func TestRenderPNGWindowsChrome(t *testing.T) {
+	opts := export.DefaultOptions()
+	opts.ChromePreset = export.ChromeOS
+	opts.ChromeOSStyle = export.OSStyleWindows
+	opts.BackgroundPreset = "slate"
+	snap := term.ScreenSnapshot{
+		Cols:  5,
+		Rows:  1,
+		Lines: []string{"ok"},
+	}
+	png, err := export.RenderPNG(snap, opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(png) < 8 || !bytes.HasPrefix(png, []byte{0x89, 'P', 'N', 'G'}) {
+		t.Fatalf("invalid png prefix %v", png[:min(8, len(png))])
+	}
+}
+
 func TestOptionsValidateRejectsInvalidChrome(t *testing.T) {
 	opts := export.DefaultOptions()
 	opts.ChromePreset = "native-macos"

@@ -50,6 +50,8 @@ func writeSVGChrome(buf *bytes.Buffer, layout Layout, opts Options) {
 		switch opts.ResolvedOSStyle() {
 		case OSStyleMacOS:
 			writeSVGMacOSChrome(buf, layout, opts)
+		case OSStyleWindows:
+			writeSVGWindowsChrome(buf, layout, opts)
 		default:
 			writeSVGWireframeChrome(buf, layout, opts)
 		}
@@ -121,6 +123,50 @@ func writeSVGMacOSChrome(buf *bytes.Buffer, layout Layout, opts Options) {
 	}
 	fontSize := 13 * layout.RenderScale
 	fmt.Fprintf(buf, `<text x="%d" y="%d" text-anchor="middle" fill="%s" font-family="-apple-system,BlinkMacSystemFont,&quot;SF Pro Text&quot;,system-ui,sans-serif" font-size="%d" font-weight="500">%s</text>`, layout.RenderOuterW/2, int(float64(titleBar)*0.62), titleColor, fontSize, html.EscapeString(opts.Title))
+}
+
+func writeSVGWindowsChrome(buf *bytes.Buffer, layout Layout, opts Options) {
+	light := opts.Theme == "light"
+	windowBg := "#0C0C0C"
+	border := "rgba(255,255,255,0.06)"
+	tabText := "#CCCCCC"
+	separator := "#333333"
+	captionColor := "rgba(255,255,255,0.9)"
+	if light {
+		windowBg = "#F3F3F3"
+		border = "rgba(0,0,0,0.12)"
+		tabText = "#1A1A1A"
+		separator = "#E5E5E5"
+		captionColor = "rgba(0,0,0,0.9)"
+	}
+	radius := layout.WindowRadius
+	titleBar := layout.TitleBar
+	btnW := WindowsCaptionButtonWidth() * layout.RenderScale
+	icon := 4 * layout.RenderScale
+	thickness := layout.RenderScale
+	if thickness < 1 {
+		thickness = 1
+	}
+	fmt.Fprintf(buf, `<rect x="0" y="0" width="%d" height="%d" rx="%d" fill="%s" stroke="%s" stroke-width="0.5"/>`, layout.RenderOuterW, layout.RenderOuterH, radius, windowBg, border)
+	tabX := (WindowsTabInsetX() + WindowsTabPaddingX()) * layout.RenderScale
+	fontSize := 12 * layout.RenderScale
+	fmt.Fprintf(buf, `<text x="%d" y="%d" dominant-baseline="middle" fill="%s" font-family="Segoe UI Variable,Segoe UI,system-ui,sans-serif" font-size="%d" font-weight="400">%s</text>`, tabX, titleBar/2, tabText, fontSize, html.EscapeString(opts.Title))
+	fmt.Fprintf(buf, `<rect x="0" y="%d" width="%d" height="1" fill="%s"/>`, titleBar-1, layout.RenderOuterW, separator)
+	kinds := []string{"minimize", "maximize", "close"}
+	for i, kind := range kinds {
+		x := layout.RenderOuterW - (len(kinds)-i)*btnW
+		cx := x + btnW/2
+		cy := titleBar / 2
+		switch kind {
+		case "minimize":
+			fmt.Fprintf(buf, `<line x1="%d" y1="%d" x2="%d" y2="%d" stroke="%s" stroke-width="%d"/>`, cx-icon, cy, cx+icon, cy, captionColor, thickness)
+		case "maximize":
+			fmt.Fprintf(buf, `<rect x="%d" y="%d" width="%d" height="%d" fill="none" stroke="%s" stroke-width="%d"/>`, cx-icon, cy-icon, icon*2, icon*2, captionColor, thickness)
+		case "close":
+			fmt.Fprintf(buf, `<line x1="%d" y1="%d" x2="%d" y2="%d" stroke="%s" stroke-width="%d"/>`, cx-icon, cy-icon, cx+icon, cy+icon, captionColor, thickness)
+			fmt.Fprintf(buf, `<line x1="%d" y1="%d" x2="%d" y2="%d" stroke="%s" stroke-width="%d"/>`, cx+icon, cy-icon, cx-icon, cy+icon, captionColor, thickness)
+		}
+	}
 }
 
 func writeSVGTerminal(buf *bytes.Buffer, snap term.ScreenSnapshot, layout Layout, opts Options) {

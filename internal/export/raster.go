@@ -88,6 +88,8 @@ func drawChrome(img *image.RGBA, layout Layout, opts Options) {
 		switch opts.ResolvedOSStyle() {
 		case OSStyleMacOS:
 			drawMacOSChrome(img, layout, opts)
+		case OSStyleWindows:
+			drawWindowsChrome(img, layout, opts)
 		default:
 			drawWireframeChrome(img, layout, opts)
 		}
@@ -160,6 +162,114 @@ func drawMacOSTrafficLights(img *image.RGBA, layout Layout) {
 		fillCircle(img, cx, cy, dot/2, c)
 		strokeCircle(img, cx, cy, dot/2, ring)
 	}
+}
+
+func drawWindowsChrome(img *image.RGBA, layout Layout, opts Options) {
+	w, h := layout.RenderOuterW, layout.RenderOuterH
+	radius := layout.WindowRadius
+	windowBg := WindowsWindowBg(opts)
+	light := opts.Theme == "light"
+	border := color.RGBA{255, 255, 255, 15}
+	captionColor := color.RGBA{255, 255, 255, 230}
+	if light {
+		border = color.RGBA{0, 0, 0, 31}
+		captionColor = color.RGBA{0, 0, 0, 230}
+	}
+
+	fillRoundRect(img, 0, 0, w, h, radius, windowBg)
+	drawWindowsActiveTab(img, layout, opts)
+	drawWindowsCaptionButtons(img, layout, captionColor)
+	strokeRoundRect(img, 0, 0, w, h, radius, border, 1)
+}
+
+func drawWindowsActiveTab(img *image.RGBA, layout Layout, opts Options) {
+	titleBar := layout.TitleBar
+	light := opts.Theme == "light"
+	tabText := color.RGBA{204, 204, 204, 255}
+	separator := color.RGBA{51, 51, 51, 255}
+	if light {
+		tabText = color.RGBA{26, 26, 26, 255}
+		separator = color.RGBA{229, 229, 229, 255}
+	}
+	fontSize := 12 * layout.RenderScale
+	face, err := monoFace(float64(fontSize))
+	if err == nil {
+		x := (WindowsTabInsetX() + WindowsTabPaddingX()) * layout.RenderScale
+		drawText(img, face, opts.Title, x, titleBar/2+fontSize*2/5, tabText, false)
+	}
+	fillRect(img, 0, titleBar-1, layout.RenderOuterW, 1, separator)
+}
+
+func drawWindowsCaptionButtons(img *image.RGBA, layout Layout, icon color.RGBA) {
+	btnW := WindowsCaptionButtonWidth() * layout.RenderScale
+	titleBar := layout.TitleBar
+	w := layout.RenderOuterW
+	iconSize := 4 * layout.RenderScale
+	thickness := layout.RenderScale
+	if thickness < 1 {
+		thickness = 1
+	}
+	kinds := []string{"minimize", "maximize", "close"}
+	for i, kind := range kinds {
+		x := w - (len(kinds)-i)*btnW
+		cx := x + btnW/2
+		cy := titleBar / 2
+		switch kind {
+		case "minimize":
+			strokeHLine(img, cx-iconSize, cx+iconSize, cy, icon, thickness)
+		case "maximize":
+			strokeRect(img, cx-iconSize, cy-iconSize, iconSize*2, iconSize*2, icon, thickness)
+		case "close":
+			strokeLine(img, cx-iconSize, cy-iconSize, cx+iconSize, cy+iconSize, icon, thickness)
+			strokeLine(img, cx+iconSize, cy-iconSize, cx-iconSize, cy+iconSize, icon, thickness)
+		}
+	}
+}
+
+func strokeHLine(img *image.RGBA, x1, x2, y int, c color.RGBA, thickness int) {
+	for t := 0; t < thickness; t++ {
+		for x := x1; x <= x2; x++ {
+			img.Set(x, y+t, c)
+		}
+	}
+}
+
+func strokeLine(img *image.RGBA, x1, y1, x2, y2 int, c color.RGBA, thickness int) {
+	dx := absInt(x2 - x1)
+	dy := absInt(y2 - y1)
+	sx := -1
+	if x1 < x2 {
+		sx = 1
+	}
+	sy := -1
+	if y1 < y2 {
+		sy = 1
+	}
+	err := dx - dy
+	for {
+		for t := 0; t < thickness; t++ {
+			img.Set(x1, y1+t, c)
+		}
+		if x1 == x2 && y1 == y2 {
+			break
+		}
+		e2 := err * 2
+		if e2 > -dy {
+			err -= dy
+			x1 += sx
+		}
+		if e2 < dx {
+			err += dx
+			y1 += sy
+		}
+	}
+}
+
+func absInt(v int) int {
+	if v < 0 {
+		return -v
+	}
+	return v
 }
 
 func drawViewerFrame(img *image.RGBA, layout Layout, opts Options) {

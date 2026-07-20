@@ -76,10 +76,15 @@ func ComputeLayout(snap term.ScreenSnapshot, opts Options) Layout {
 
 	if opts.IsOSChrome() {
 		osStyle := opts.ResolvedOSStyle()
-		if osStyle == OSStyleMacOS {
+		if osStyle == OSStyleMacOS || osStyle == OSStyleWindows {
 			titleBar := MacOSTitleBarHeight() * renderScale
 			termInset := MacOSTerminalInset() * renderScale
 			radius := MacOSWindowRadius() * renderScale
+			if osStyle == OSStyleWindows {
+				titleBar = WindowsTitleBarHeight() * renderScale
+				termInset = WindowsTerminalInset() * renderScale
+				radius = WindowsWindowRadius() * renderScale
+			}
 			renderOuterW := termW + termInset*2
 			renderOuterH := titleBar + termH + termInset*2
 			return Layout{
@@ -93,7 +98,7 @@ func ComputeLayout(snap term.ScreenSnapshot, opts Options) Layout {
 				TitleBar:     titleBar,
 				FramePad:     termInset,
 				WindowRadius: radius,
-				OSStyle:      OSStyleMacOS,
+				OSStyle:      osStyle,
 				Cols:         cols,
 				Rows:         rows,
 				Wireframe:    false,

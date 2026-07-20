@@ -98,9 +98,7 @@ func (o *Options) Validate() error {
 	}
 	if o.ChromePreset == ChromeOS {
 		switch o.ChromeOSStyle {
-		case OSStyleWireframe, OSStyleMacOS:
-		case OSStyleWindows:
-			return fmt.Errorf("windows chrome is not available yet")
+		case OSStyleWireframe, OSStyleMacOS, OSStyleWindows:
 		default:
 			return fmt.Errorf("invalid chrome_os_style %q", o.ChromeOSStyle)
 		}

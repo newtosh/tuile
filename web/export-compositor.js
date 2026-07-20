@@ -7,6 +7,7 @@ import {
   CHROME_OS,
   FORMAT_SVG,
   OS_STYLE_MACOS,
+  OS_STYLE_WINDOWS,
   OS_STYLE_WIREFRAME,
   chromeInnerGap,
   chromePadding,
@@ -18,6 +19,10 @@ import {
   macosTitleBarHeight,
   macosTerminalInset,
   macosWindowRadius,
+  windowsChromePalette,
+  windowsTerminalInset,
+  windowsTitleBarHeight,
+  windowsWindowRadius,
   resolveOsStyle,
   titleBarHeight,
   validateExportOptions,
@@ -59,16 +64,19 @@ export function computeLayout(screen, opts, viewerMetrics = null) {
 
   if (isOsChrome(opts)) {
     const osStyle = resolveOsStyle(opts);
-    if (osStyle === OS_STYLE_MACOS) {
-      const titleBar = macosTitleBarHeight() * renderScale;
-      const termInset = macosTerminalInset() * renderScale;
-      const radius = macosWindowRadius() * renderScale;
+    if (osStyle === OS_STYLE_MACOS || osStyle === OS_STYLE_WINDOWS) {
+      const titleBar =
+        (osStyle === OS_STYLE_MACOS ? macosTitleBarHeight() : windowsTitleBarHeight()) * renderScale;
+      const termInset =
+        (osStyle === OS_STYLE_MACOS ? macosTerminalInset() : windowsTerminalInset()) * renderScale;
+      const radius =
+        (osStyle === OS_STYLE_MACOS ? macosWindowRadius() : windowsWindowRadius()) * renderScale;
       const renderOuterW = termW + termInset * 2;
       const renderOuterH = titleBar + termH + termInset * 2;
       return {
         ...base,
         chrome: CHROME_OS,
-        osStyle: OS_STYLE_MACOS,
+        osStyle,
         titleBar,
         termInset,
         windowRadius: radius,
@@ -126,10 +134,18 @@ function finalizeRenderLayout(layout, opts, termW, termH) {
   const downscale = layout.downscale || 1;
   if (isOsChrome(opts)) {
     const osStyle = resolveOsStyle(opts);
-    if (osStyle === OS_STYLE_MACOS) {
+    if (osStyle === OS_STYLE_MACOS || osStyle === OS_STYLE_WINDOWS) {
       const renderScale = layout.renderScale ?? 1;
-      const titleBar = layout.titleBar ?? macosTitleBarHeight() * renderScale;
-      const termInset = layout.termInset ?? macosTerminalInset() * renderScale;
+      const titleBar =
+        layout.titleBar ??
+        (osStyle === OS_STYLE_MACOS
+          ? macosTitleBarHeight() * renderScale
+          : windowsTitleBarHeight() * renderScale);
+      const termInset =
+        layout.termInset ??
+        (osStyle === OS_STYLE_MACOS
+          ? macosTerminalInset() * renderScale
+          : windowsTerminalInset() * renderScale);
       const renderOuterW = termW + termInset * 2;
       const renderOuterH = titleBar + termH + termInset * 2;
       return {
@@ -346,6 +362,85 @@ function drawMacOSTrafficLights(ctx, palette) {
   }
 }
 
+function drawWindowsActiveTab(ctx, palette, title) {
+  const { titleBarHeight, tabInsetX, tabPaddingX, tabText, tabRowSeparator, titleFontSize } = palette;
+  ctx.font = `400 ${titleFontSize}px "Segoe UI Variable", "Segoe UI", system-ui, sans-serif`;
+  const text = title || "Terminal";
+  ctx.fillStyle = tabText;
+  ctx.textAlign = "left";
+  ctx.textBaseline = "middle";
+  ctx.fillText(text, tabInsetX + tabPaddingX, titleBarHeight / 2);
+  ctx.fillStyle = tabRowSeparator;
+  ctx.fillRect(0, titleBarHeight - 1, ctx.canvas.width, 1);
+}
+
+function drawWindowsCaptionButtons(ctx, palette, w) {
+  const { titleBarHeight, captionButtonWidth, captionColor, iconScale } = palette;
+  const btnW = captionButtonWidth;
+  const kinds = ["minimize", "maximize", "close"];
+  const icon = 4 * iconScale;
+  ctx.strokeStyle = captionColor;
+  ctx.lineWidth = Math.max(1, iconScale * 0.75);
+  ctx.lineCap = "round";
+  for (let i = 0; i < kinds.length; i++) {
+    const x = w - (kinds.length - i) * btnW;
+    const cx = x + btnW / 2;
+    const cy = titleBarHeight / 2;
+    if (kinds[i] === "minimize") {
+      ctx.beginPath();
+      ctx.moveTo(cx - icon, cy);
+      ctx.lineTo(cx + icon, cy);
+      ctx.stroke();
+    } else if (kinds[i] === "maximize") {
+      ctx.strokeRect(cx - icon, cy - icon, icon * 2, icon * 2);
+    } else {
+      ctx.beginPath();
+      ctx.moveTo(cx - icon, cy - icon);
+      ctx.lineTo(cx + icon, cy + icon);
+      ctx.moveTo(cx + icon, cy - icon);
+      ctx.lineTo(cx - icon, cy + icon);
+      ctx.stroke();
+    }
+  }
+}
+
+function drawWindowsChrome(ctx, layout, opts) {
+  const s = layout.renderScale ?? layout.scale ?? 1;
+  const w = layout.renderOuterW;
+  const h = layout.renderOuterH;
+  const palette = windowsChromePalette(opts, s);
+  const radius = layout.windowRadius ?? palette.windowRadius;
+  const titleBar = layout.titleBar ?? palette.titleBarHeight;
+  const transparent = opts?.background_mode === BACKGROUND_TRANSPARENT;
+
+  ctx.save();
+  if (!transparent) {
+    ctx.shadowColor = palette.shadowColor;
+    ctx.shadowBlur = palette.shadowBlur;
+    ctx.shadowOffsetY = palette.shadowOffsetY;
+  }
+  roundRectPath(ctx, 0, 0, w, h, radius);
+  ctx.fillStyle = palette.windowBg;
+  ctx.fill();
+  ctx.shadowColor = "transparent";
+  ctx.restore();
+
+  ctx.save();
+  roundRectPath(ctx, 0, 0, w, h, radius);
+  ctx.clip();
+  ctx.fillStyle = palette.titleBarBg;
+  ctx.fillRect(0, 0, w, h);
+
+  drawWindowsActiveTab(ctx, palette, opts.title);
+  drawWindowsCaptionButtons(ctx, palette, w);
+
+  roundRectPath(ctx, 0.5, 0.5, w - 1, h - 1, radius);
+  ctx.strokeStyle = palette.border;
+  ctx.lineWidth = Math.max(0.5, 0.5 * s);
+  ctx.stroke();
+  ctx.restore();
+}
+
 function drawMacOSChrome(ctx, layout, opts) {
   const s = layout.renderScale ?? layout.scale ?? 1;
   const w = layout.renderOuterW;
@@ -423,6 +518,10 @@ function drawChrome(ctx, layout, opts) {
   }
   if (resolveOsStyle(opts) === OS_STYLE_MACOS) {
     drawMacOSChrome(ctx, layout, opts);
+    return;
+  }
+  if (resolveOsStyle(opts) === OS_STYLE_WINDOWS) {
+    drawWindowsChrome(ctx, layout, opts);
     return;
   }
   drawWireframeChrome(ctx, layout, opts);
@@ -673,6 +772,30 @@ export async function composeExportSVG({ screen, opts, viewerMetrics }) {
       x += dot + gap;
     }
     svg += `<text x="${layout.renderOuterW / 2}" y="${titleBar * 0.62}" text-anchor="middle" fill="${palette.titleColor}" font-family="-apple-system,BlinkMacSystemFont,&quot;SF Pro Text&quot;,system-ui,sans-serif" font-size="${palette.titleFontSize}" font-weight="500">${escapeXml(options.title || "Terminal")}</text>`;
+  } else if (osChrome && osStyle === OS_STYLE_WINDOWS) {
+    const palette = windowsChromePalette(options, layout.renderScale);
+    const radius = layout.windowRadius;
+    const titleBar = layout.titleBar;
+    const btnW = palette.captionButtonWidth;
+    const icon = 4 * palette.iconScale;
+    const text = options.title || "Terminal";
+    svg += `<rect x="0" y="0" width="${layout.renderOuterW}" height="${layout.renderOuterH}" rx="${radius}" fill="${palette.windowBg}" stroke="${palette.border}" stroke-width="0.5"/>`;
+    svg += `<text x="${palette.tabInsetX + palette.tabPaddingX}" y="${titleBar / 2}" dominant-baseline="middle" fill="${palette.tabText}" font-family=&quot;Segoe UI Variable&quot;,&quot;Segoe UI&quot;,system-ui,sans-serif font-size="${palette.titleFontSize}" font-weight="400">${escapeXml(text)}</text>`;
+    svg += `<rect x="0" y="${titleBar - 1}" width="${layout.renderOuterW}" height="1" fill="${palette.tabRowSeparator}"/>`;
+    const kinds = ["minimize", "maximize", "close"];
+    for (let i = 0; i < kinds.length; i++) {
+      const x = layout.renderOuterW - (kinds.length - i) * btnW;
+      const cx = x + btnW / 2;
+      const cy = titleBar / 2;
+      if (kinds[i] === "minimize") {
+        svg += `<line x1="${cx - icon}" y1="${cy}" x2="${cx + icon}" y2="${cy}" stroke="${palette.captionColor}" stroke-width="${Math.max(1, palette.iconScale * 0.75)}"/>`;
+      } else if (kinds[i] === "maximize") {
+        svg += `<rect x="${cx - icon}" y="${cy - icon}" width="${icon * 2}" height="${icon * 2}" fill="none" stroke="${palette.captionColor}" stroke-width="${Math.max(1, palette.iconScale * 0.75)}"/>`;
+      } else {
+        svg += `<line x1="${cx - icon}" y1="${cy - icon}" x2="${cx + icon}" y2="${cy + icon}" stroke="${palette.captionColor}" stroke-width="${Math.max(1, palette.iconScale * 0.75)}"/>`;
+        svg += `<line x1="${cx + icon}" y1="${cy - icon}" x2="${cx - icon}" y2="${cy + icon}" stroke="${palette.captionColor}" stroke-width="${Math.max(1, palette.iconScale * 0.75)}"/>`;
+      }
+    }
   } else if (osChrome) {
     const s = layout.renderScale;
     const stroke = STROKE;

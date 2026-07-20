@@ -88,6 +88,9 @@ func TitleBarHeight(chrome string, osStyle string) int {
 	if osStyle == OSStyleMacOS {
 		return MacOSTitleBarHeight()
 	}
+	if osStyle == OSStyleWindows {
+		return WindowsTitleBarHeight()
+	}
 	return 36
 }
 
@@ -127,6 +130,47 @@ func MacOSWindowBg(opts Options) color.RGBA {
 		return color.RGBA{255, 255, 255, 255}
 	}
 	return color.RGBA{10, 10, 10, 255}
+}
+
+// WindowsTitleBarHeight returns the Windows Terminal tab row height at 1x.
+// Grounded in microsoft/terminal#9093 and showTabsInTitlebar default (MS Learn).
+func WindowsTitleBarHeight() int {
+	return 36
+}
+
+// WindowsWindowRadius returns the Windows-style window corner radius at 1x.
+func WindowsWindowRadius() int {
+	return 8
+}
+
+// WindowsTerminalInset returns text margin inside the window at 1x.
+// Matches macOS: same-color band so terminal text does not hug the window edge.
+func WindowsTerminalInset() int {
+	return 8
+}
+
+// WindowsTabInsetX returns the active tab label inset from the left edge at 1x.
+func WindowsTabInsetX() int {
+	return 8
+}
+
+// WindowsTabPaddingX returns horizontal padding inside the active tab label at 1x.
+func WindowsTabPaddingX() int {
+	return 10
+}
+
+// WindowsCaptionButtonWidth returns caption button width at 1x.
+// Grounded in TerminalApp/MinMaxCloseControl.xaml (Width 40).
+func WindowsCaptionButtonWidth() int {
+	return 40
+}
+
+// WindowsWindowBg returns the unified window/title bar fill for Windows chrome.
+func WindowsWindowBg(opts Options) color.RGBA {
+	if opts.Theme == "light" {
+		return color.RGBA{243, 243, 243, 255}
+	}
+	return color.RGBA{12, 12, 12, 255}
 }
 
 // ChromePadding returns outer chrome inset at 1x for wireframe preset.
