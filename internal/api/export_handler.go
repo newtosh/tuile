@@ -87,6 +87,9 @@ func parseExportMultipart(r *http.Request) (export.Options, io.Reader, error) {
 	if v := r.FormValue("chrome_preset"); v != "" {
 		opts.ChromePreset = v
 	}
+	if v := r.FormValue("chrome_os_style"); v != "" {
+		opts.ChromeOSStyle = v
+	}
 	if v := r.FormValue("background_mode"); v != "" {
 		opts.BackgroundMode = v
 	}

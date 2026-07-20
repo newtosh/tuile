@@ -34,6 +34,9 @@ type Layout struct {
 	Cols          int
 	Rows          int
 	Wireframe     bool
+	OSStyle       string
+	WindowRadius  int
+	Border        int
 }
 
 // EffectiveFontPx returns the export font size with a readability floor.
@@ -71,9 +74,40 @@ func ComputeLayout(snap term.ScreenSnapshot, opts Options) Layout {
 	}
 	cellW, cellH, termW, termH := layoutCellGeometry(cols, rows, fontPx, renderScale, opts)
 
-	if opts.ChromePreset == ChromeOSWireframe {
+	if opts.IsOSChrome() {
+		osStyle := opts.ResolvedOSStyle()
+		if osStyle == OSStyleMacOS {
+			titleBar := MacOSTitleBarHeight() * renderScale
+			termInset := MacOSTerminalInset() * renderScale
+			radius := MacOSWindowRadius() * renderScale
+			renderOuterW := termW + termInset*2
+			renderOuterH := titleBar + termH + termInset*2
+			return Layout{
+				ExportScale:  exportScale,
+				RenderScale:  renderScale,
+				Downscale:    renderScale / exportScale,
+				CellW:        cellW,
+				CellH:        cellH,
+				TermW:        termW,
+				TermH:        termH,
+				TitleBar:     titleBar,
+				FramePad:     termInset,
+				WindowRadius: radius,
+				OSStyle:      OSStyleMacOS,
+				Cols:         cols,
+				Rows:         rows,
+				Wireframe:    false,
+				RenderOuterW: renderOuterW,
+				RenderOuterH: renderOuterH,
+				OuterW:       renderOuterW / (renderScale / exportScale),
+				OuterH:       renderOuterH / (renderScale / exportScale),
+				TermOffsetX:  termInset,
+				TermOffsetY:  titleBar + termInset,
+			}
+		}
+
 		pad := ChromePadding() * renderScale
-		title := TitleBarHeight(opts.ChromePreset) * renderScale
+		title := TitleBarHeight(ChromeOS, OSStyleWireframe) * renderScale
 		inner := ChromeInnerGap() * renderScale
 		renderOuterW := termW + pad*2
 		renderOuterH := pad + title + inner + termH + pad
@@ -88,6 +122,7 @@ func ComputeLayout(snap term.ScreenSnapshot, opts Options) Layout {
 			ChromePad:    pad,
 			TitleBar:     title,
 			InnerGap:     inner,
+			OSStyle:      OSStyleWireframe,
 			Cols:         cols,
 			Rows:         rows,
 			Wireframe:    true,

@@ -1,5 +1,13 @@
+import { getTerminalTheme, resolveTerminalThemeId } from "./terminal-themes.js";
+
 export const CHROME_MINIMAL = "minimal";
+export const CHROME_OS = "os";
+/** @deprecated use chrome_preset=os + chrome_os_style=wireframe */
 export const CHROME_OS_WIREFRAME = "os-wireframe";
+
+export const OS_STYLE_WIREFRAME = "wireframe";
+export const OS_STYLE_MACOS = "macos";
+export const OS_STYLE_WINDOWS = "windows";
 
 export const BACKGROUND_TRANSPARENT = "transparent";
 export const BACKGROUND_PRESET = "preset";
@@ -101,25 +109,120 @@ export const GRID_LABEL = {
   radius: 4,
 };
 
+export function normalizeChromeOptions(opts) {
+  const o = { ...opts };
+  if (o.chrome_preset === CHROME_OS_WIREFRAME) {
+    o.chrome_preset = CHROME_OS;
+    o.chrome_os_style = o.chrome_os_style || OS_STYLE_WIREFRAME;
+  }
+  if (o.chrome_preset === CHROME_OS && !o.chrome_os_style) {
+    o.chrome_os_style = OS_STYLE_WIREFRAME;
+  }
+  return o;
+}
+
+export function isOsChrome(opts) {
+  const o = normalizeChromeOptions(opts);
+  return o.chrome_preset === CHROME_OS;
+}
+
+export function resolveOsStyle(opts) {
+  return normalizeChromeOptions(opts).chrome_os_style || OS_STYLE_WIREFRAME;
+}
+
+export function macosTitleBarHeight() {
+  return MACOS_CHROME.titleBarHeight;
+}
+
+export function macosWindowRadius() {
+  return MACOS_CHROME.windowRadius;
+}
+
+export const MACOS_CHROME = {
+  titleBarHeight: 28,
+  windowRadius: 10,
+  terminalInset: 8,
+  trafficLightSize: 12,
+  trafficLightInsetX: 8,
+  trafficLightInsetY: 8,
+  trafficLightGap: 8,
+  trafficLightColors: ["#F96057", "#F8CE52", "#5FCF65"],
+  trafficLightRing: "rgba(0, 0, 0, 0.1)",
+  titleFontSize: 13,
+  shadowBlur: 30,
+  shadowOffsetY: 20,
+  shadowColor: "rgba(0, 0, 0, 0.2)",
+  borderDark: "rgba(0, 0, 0, 0.35)",
+  borderLight: "rgba(0, 0, 0, 0.12)",
+  titleTextDark: "rgba(245, 245, 247, 0.72)",
+  titleTextLight: "rgba(60, 60, 67, 0.72)",
+  windowBgDark: "#0a0a0a",
+  windowBgLight: "#ffffff",
+};
+
+export function macosChromePalette(opts, renderScale = 1) {
+  const frame = viewerFrameMetrics(renderScale, opts);
+  const light = opts?.theme === "light";
+  const windowBg = frame.termBg || (light ? MACOS_CHROME.windowBgLight : MACOS_CHROME.windowBgDark);
+  return {
+    windowBg,
+    titleBarBg: windowBg,
+    border: light ? MACOS_CHROME.borderLight : MACOS_CHROME.borderDark,
+    titleColor: light ? MACOS_CHROME.titleTextLight : MACOS_CHROME.titleTextDark,
+    trafficLights: MACOS_CHROME.trafficLightColors,
+    trafficRing: MACOS_CHROME.trafficLightRing,
+    titleFontSize: MACOS_CHROME.titleFontSize * renderScale,
+    titleBarHeight: MACOS_CHROME.titleBarHeight * renderScale,
+    windowRadius: MACOS_CHROME.windowRadius * renderScale,
+    trafficLightSize: MACOS_CHROME.trafficLightSize * renderScale,
+    trafficLightInsetX: MACOS_CHROME.trafficLightInsetX * renderScale,
+    trafficLightInsetY: MACOS_CHROME.trafficLightInsetY * renderScale,
+    trafficLightGap: MACOS_CHROME.trafficLightGap * renderScale,
+    shadowBlur: MACOS_CHROME.shadowBlur * renderScale,
+    shadowOffsetY: MACOS_CHROME.shadowOffsetY * renderScale,
+    shadowColor: MACOS_CHROME.shadowColor,
+    terminalInset: MACOS_CHROME.terminalInset * renderScale,
+  };
+}
+
+export function macosTerminalInset() {
+  return MACOS_CHROME.terminalInset;
+}
+
+/** @deprecated macOS uses terminalInset instead. */
+export function macosContentPadding() {
+  return macosTerminalInset();
+}
+
 export function defaultExportOptions(viewer = {}) {
   return {
     chrome_preset: CHROME_MINIMAL,
-    background_mode: BACKGROUND_PRESET,
+    background_mode: BACKGROUND_TRANSPARENT,
     background_preset: "slate",
     scale: 1,
     format: FORMAT_PNG,
     font_family: viewer.fontFamily || "'Fira Code', monospace",
     font_size_px: viewer.fontSizePx || 14,
-    theme: "dark",
+    theme: viewer.theme || "dark",
+    terminal_theme_id: viewer.terminalThemeId || "tuile:default",
     title: viewer.title || "tuile",
     show_grid_size: viewer.showGridSize ?? true,
+    chrome_os_style: OS_STYLE_WIREFRAME,
   };
 }
 
 export function validateExportOptions(opts) {
-  const o = { ...opts };
-  if (![CHROME_MINIMAL, CHROME_OS_WIREFRAME].includes(o.chrome_preset)) {
+  const o = normalizeChromeOptions({ ...opts });
+  if (![CHROME_MINIMAL, CHROME_OS].includes(o.chrome_preset)) {
     throw new Error(`invalid chrome_preset: ${o.chrome_preset}`);
+  }
+  if (o.chrome_preset === CHROME_OS) {
+    if (![OS_STYLE_WIREFRAME, OS_STYLE_MACOS, OS_STYLE_WINDOWS].includes(o.chrome_os_style)) {
+      throw new Error(`invalid chrome_os_style: ${o.chrome_os_style}`);
+    }
+    if (o.chrome_os_style === OS_STYLE_WINDOWS) {
+      throw new Error("windows chrome is not available yet");
+    }
   }
   if (![BACKGROUND_TRANSPARENT, BACKGROUND_PRESET, BACKGROUND_CUSTOM].includes(o.background_mode)) {
     throw new Error(`invalid background_mode: ${o.background_mode}`);
@@ -132,6 +235,9 @@ export function validateExportOptions(opts) {
   }
   if (![FORMAT_PNG, FORMAT_SVG].includes(o.format)) {
     throw new Error(`invalid format: ${o.format}`);
+  }
+  if (!["dark", "light"].includes(o.theme)) {
+    throw new Error(`invalid theme: ${o.theme}`);
   }
   o.font_size_px = Number(o.font_size_px) || 14;
   o.show_grid_size = Boolean(o.show_grid_size);
@@ -150,8 +256,14 @@ export function exportFilename(title, format) {
   return `${base}.${ext}`;
 }
 
-export function titleBarHeight(chrome) {
-  return chrome === CHROME_OS_WIREFRAME ? 36 : 0;
+export function titleBarHeight(chrome, osStyle = OS_STYLE_WIREFRAME) {
+  if (chrome === CHROME_MINIMAL) {
+    return 0;
+  }
+  if (osStyle === OS_STYLE_MACOS) {
+    return macosTitleBarHeight();
+  }
+  return 36;
 }
 
 export function chromePadding() {
@@ -195,16 +307,24 @@ export function themeChromeAccents(presetId) {
 }
 
 export function viewerFrameMetrics(renderScale = 1, opts = null) {
-  const preset =
-    opts?.background_mode === BACKGROUND_PRESET && opts?.background_preset
-      ? opts.background_preset
-      : "slate";
+  const appearance = opts?.theme === "light" ? "light" : "dark";
+  const termPalette = opts?.terminal_theme_id
+    ? getTerminalTheme(resolveTerminalThemeId(opts.terminal_theme_id, appearance)).xterm
+    : null;
+  const termBg = termPalette?.background || "#0a0a0a";
+
+  let preset = appearance === "light" ? "mist" : "slate";
+  if (opts?.background_mode === BACKGROUND_PRESET && opts?.background_preset) {
+    preset = opts.background_preset;
+  }
   const accents = themeChromeAccents(preset);
+  const frameBg = opts?.background_mode === BACKGROUND_PRESET ? accents.frameBg : termBg;
   return {
     framePad: VIEWER_FRAME.framePad * renderScale,
     radius: VIEWER_FRAME.radius * renderScale,
     border: accents.border,
-    frameBg: accents.frameBg,
+    frameBg,
+    termBg,
     labelText: accents.labelText,
     labelBg: accents.labelBg,
     labelBorder: accents.labelBorder,

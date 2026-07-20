@@ -69,6 +69,7 @@ export function initViewerIcons(root = document) {
   const specs = [
     ["settings-toggle-icon", "settings", { size: 18 }],
     ["export-toggle-icon", "image", { size: 18 }],
+    ["export-info-icon", "info", { size: 16 }],
     ["export-close-icon", "x", { size: 18 }],
     ["webgl-info-icon", "circle-help", { size: 14 }],
     ["refresh-sessions-icon", "refresh-cw", { size: 16 }],

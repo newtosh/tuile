@@ -26,6 +26,8 @@ Thumbs.db
 # Local screenshot / browser automation artifacts
 .playwright-mcp/
 tuile-*.png
+.tuile-dev.pid
+.tuile-dev.log
 
 # Agent tooling (local only)
 .compound-engineering/

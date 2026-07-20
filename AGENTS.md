@@ -34,7 +34,10 @@ make build
 make test                 # unit tests — run before finishing
 make vet                  # or rely on CI
 make test-integration     # needs Chrome; matches CI integration job
+make viewer-dev           # rebuild, restart server, recreate demo sessions (viewer work)
 ```
+
+After **viewer / export UI** changes, run `make viewer-dev` before handoff so the browser can be tested at http://127.0.0.1:7710/view with fresh demo sessions.
 
 CI (`.github/workflows/ci.yml`) runs: `go mod tidy` check, `go vet`, both binary builds, unit tests, and integration tests.
 

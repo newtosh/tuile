@@ -4,18 +4,27 @@ import {
   BACKGROUND_PRESETS,
   BACKGROUND_TRANSPARENT,
   CHROME_MINIMAL,
-  CHROME_OS_WIREFRAME,
-  FORMAT_PNG,
+  CHROME_OS,
   FORMAT_SVG,
+  OS_STYLE_MACOS,
+  OS_STYLE_WIREFRAME,
   chromeInnerGap,
   chromePadding,
   exportScales,
   gridLabelMetrics,
+  isOsChrome,
+  macosChromePalette,
+  MACOS_CHROME,
+  macosTitleBarHeight,
+  macosTerminalInset,
+  macosWindowRadius,
+  resolveOsStyle,
   titleBarHeight,
   validateExportOptions,
   viewerFrameMetrics,
 } from "./export-options.js";
 import { installLigatures } from "./ligatures.js";
+import { getTerminalTheme, resolveTerminalThemeId } from "./terminal-themes.js";
 
 const STROKE = "#8b8b9e";
 const FRAME_FILL = "#16161a";
@@ -48,15 +57,39 @@ export function computeLayout(screen, opts, viewerMetrics = null) {
     termH,
   };
 
-  if (opts.chrome_preset === CHROME_OS_WIREFRAME) {
+  if (isOsChrome(opts)) {
+    const osStyle = resolveOsStyle(opts);
+    if (osStyle === OS_STYLE_MACOS) {
+      const titleBar = macosTitleBarHeight() * renderScale;
+      const termInset = macosTerminalInset() * renderScale;
+      const radius = macosWindowRadius() * renderScale;
+      const renderOuterW = termW + termInset * 2;
+      const renderOuterH = titleBar + termH + termInset * 2;
+      return {
+        ...base,
+        chrome: CHROME_OS,
+        osStyle: OS_STYLE_MACOS,
+        titleBar,
+        termInset,
+        windowRadius: radius,
+        termX: termInset,
+        termY: titleBar + termInset,
+        renderOuterW,
+        renderOuterH,
+        outerW: Math.round(renderOuterW / scales.downscale),
+        outerH: Math.round(renderOuterH / scales.downscale),
+      };
+    }
+
     const pad = chromePadding() * renderScale;
-    const title = titleBarHeight(CHROME_OS_WIREFRAME) * renderScale;
+    const title = titleBarHeight(CHROME_OS, OS_STYLE_WIREFRAME) * renderScale;
     const inner = chromeInnerGap() * renderScale;
     const renderOuterW = termW + pad * 2;
     const renderOuterH = pad + title + inner + termH + pad;
     return {
       ...base,
-      chrome: CHROME_OS_WIREFRAME,
+      chrome: CHROME_OS,
+      osStyle: OS_STYLE_WIREFRAME,
       pad,
       title,
       inner,
@@ -91,7 +124,27 @@ export function computeLayout(screen, opts, viewerMetrics = null) {
 
 function finalizeRenderLayout(layout, opts, termW, termH) {
   const downscale = layout.downscale || 1;
-  if (opts.chrome_preset === CHROME_OS_WIREFRAME) {
+  if (isOsChrome(opts)) {
+    const osStyle = resolveOsStyle(opts);
+    if (osStyle === OS_STYLE_MACOS) {
+      const renderScale = layout.renderScale ?? 1;
+      const titleBar = layout.titleBar ?? macosTitleBarHeight() * renderScale;
+      const termInset = layout.termInset ?? macosTerminalInset() * renderScale;
+      const renderOuterW = termW + termInset * 2;
+      const renderOuterH = titleBar + termH + termInset * 2;
+      return {
+        ...layout,
+        termW,
+        termH,
+        renderOuterW,
+        renderOuterH,
+        outerW: Math.round(renderOuterW / downscale),
+        outerH: Math.round(renderOuterH / downscale),
+        termX: termInset,
+        termY: titleBar + termInset,
+      };
+    }
+
     const renderOuterW = termW + layout.pad * 2;
     const renderOuterH = layout.pad + layout.title + layout.inner + termH + layout.pad;
     return {
@@ -203,17 +256,23 @@ function fillFrameCornerEars(ctx, w, h, radius, color) {
   ctx.restore();
 }
 
-function drawViewerFrame(ctx, layout) {
+function drawViewerFrame(ctx, layout, opts) {
   const s = layout.renderScale ?? layout.scale;
   const w = layout.frameW;
   const h = layout.frameH;
+  const transparent = opts?.background_mode === BACKGROUND_TRANSPARENT;
 
-  fillFrameCornerEars(ctx, w, h, layout.radius, TERM_BG);
+  if (!transparent) {
+    const termBg = layout.termBg || TERM_BG;
+    fillFrameCornerEars(ctx, w, h, layout.radius, termBg);
+  }
 
   ctx.save();
-  ctx.shadowColor = "rgba(0, 0, 0, 0.28)";
-  ctx.shadowBlur = 32 * s;
-  ctx.shadowOffsetY = 12 * s;
+  if (!transparent) {
+    ctx.shadowColor = "rgba(0, 0, 0, 0.28)";
+    ctx.shadowBlur = 32 * s;
+    ctx.shadowOffsetY = 12 * s;
+  }
   roundRectPath(ctx, 0, 0, w, h, layout.radius);
   ctx.fillStyle = layout.frameBg;
   ctx.fill();
@@ -269,13 +328,77 @@ function drawTrafficLights(ctx, layout, s) {
   }
 }
 
+function drawMacOSTrafficLights(ctx, palette) {
+  const { trafficLightSize: dot, trafficLightInsetX: left, trafficLightInsetY: top, trafficLightGap: gap, trafficLights, trafficRing } = palette;
+  const r = dot / 2;
+  const cy = top + r;
+  let x = left;
+  for (const color of trafficLights) {
+    const cx = x + r;
+    ctx.beginPath();
+    ctx.fillStyle = color;
+    ctx.arc(cx, cy, r, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = trafficRing;
+    ctx.lineWidth = Math.max(0.5, 0.5 * (palette.trafficLightSize / MACOS_CHROME.trafficLightSize));
+    ctx.stroke();
+    x += dot + gap;
+  }
+}
+
+function drawMacOSChrome(ctx, layout, opts) {
+  const s = layout.renderScale ?? layout.scale ?? 1;
+  const w = layout.renderOuterW;
+  const h = layout.renderOuterH;
+  const palette = macosChromePalette(opts, s);
+  const radius = layout.windowRadius ?? palette.windowRadius;
+  const titleBar = layout.titleBar ?? palette.titleBarHeight;
+  const transparent = opts?.background_mode === BACKGROUND_TRANSPARENT;
+
+  ctx.save();
+  if (!transparent) {
+    ctx.shadowColor = palette.shadowColor;
+    ctx.shadowBlur = palette.shadowBlur;
+    ctx.shadowOffsetY = palette.shadowOffsetY;
+  }
+  roundRectPath(ctx, 0, 0, w, h, radius);
+  ctx.fillStyle = palette.windowBg;
+  ctx.fill();
+  ctx.shadowColor = "transparent";
+  ctx.restore();
+
+  ctx.save();
+  roundRectPath(ctx, 0, 0, w, h, radius);
+  ctx.clip();
+  ctx.fillStyle = palette.titleBarBg;
+  ctx.fillRect(0, 0, w, h);
+
+  drawMacOSTrafficLights(ctx, palette);
+
+  ctx.fillStyle = palette.titleColor;
+  ctx.font = `500 ${palette.titleFontSize}px -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif`;
+  ctx.textAlign = "center";
+  ctx.textBaseline = "alphabetic";
+  ctx.fillText(opts.title || "Terminal", w / 2, titleBar * 0.62);
+  ctx.textAlign = "left";
+
+  roundRectPath(ctx, 0.5, 0.5, w - 1, h - 1, radius);
+  ctx.strokeStyle = palette.border;
+  ctx.lineWidth = Math.max(0.5, 0.5 * s);
+  ctx.stroke();
+  ctx.restore();
+}
+
 function drawWireframeChrome(ctx, layout, opts) {
   const s = layout.scale;
   const inset = layout.pad;
   const { w, h } = canvasSize(layout);
+  const transparent = opts?.background_mode === BACKGROUND_TRANSPARENT;
 
-  ctx.fillStyle = FRAME_FILL;
-  ctx.fillRect(0, 0, w, h);
+  if (!transparent) {
+    ctx.fillStyle = FRAME_FILL;
+    ctx.fillRect(0, 0, w, h);
+  }
   ctx.strokeStyle = STROKE;
   ctx.lineWidth = 2 * s;
   ctx.setLineDash([5 * s, 4 * s]);
@@ -294,15 +417,19 @@ function drawWireframeChrome(ctx, layout, opts) {
 }
 
 function drawChrome(ctx, layout, opts) {
-  if (opts.chrome_preset === CHROME_OS_WIREFRAME) {
-    drawWireframeChrome(ctx, layout, opts);
+  if (!isOsChrome(opts)) {
+    drawViewerFrame(ctx, layout, opts);
     return;
   }
-  drawViewerFrame(ctx, layout);
+  if (resolveOsStyle(opts) === OS_STYLE_MACOS) {
+    drawMacOSChrome(ctx, layout, opts);
+    return;
+  }
+  drawWireframeChrome(ctx, layout, opts);
 }
 
 function drawGridLabelOverlay(ctx, layout, opts) {
-  if (opts.chrome_preset === CHROME_OS_WIREFRAME || !opts.show_grid_size) {
+  if (isOsChrome(opts) || !opts.show_grid_size) {
     return;
   }
   drawGridLabel(ctx, layout);
@@ -337,6 +464,9 @@ function loadExportTerminal(host, layout, options, viewerMetrics) {
   const fontPx = viewerMetrics?.fontSizePx || layout.fontPx;
   const terminalFontPx = fontPx * (layout.renderScale ?? layout.scale);
   const fontFamily = viewerMetrics?.fontFamily || options.font_family;
+  const appearance = options.theme === "light" ? "light" : "dark";
+  const themeId = resolveTerminalThemeId(options.terminal_theme_id, appearance);
+  const palette = getTerminalTheme(themeId).xterm;
   const term = new Terminal({
     cols: viewerMetrics?.cols || layout.cols,
     rows: viewerMetrics?.rows || layout.rows,
@@ -349,26 +479,7 @@ function loadExportTerminal(host, layout, options, viewerMetrics) {
     scrollback: 0,
     convertEol: true,
     allowProposedApi: true,
-    theme: {
-      background: TERM_BG,
-      foreground: "#e4e4e4",
-      black: TERM_BG,
-      red: "#f87171",
-      green: "#4ade80",
-      yellow: "#facc15",
-      blue: "#60a5fa",
-      magenta: "#c084fc",
-      cyan: "#22d3ee",
-      white: "#e4e4e4",
-      brightBlack: "#6b7280",
-      brightRed: "#fca5a5",
-      brightGreen: "#86efac",
-      brightYellow: "#fde047",
-      brightBlue: "#93c5fd",
-      brightMagenta: "#d8b4fe",
-      brightCyan: "#67e8f9",
-      brightWhite: "#f9fafb",
-    },
+    theme: palette,
   });
   term.open(host);
 
@@ -427,7 +538,8 @@ function drawExportTerminal(ctx, measured, layout) {
   if (!canvas) {
     return;
   }
-  ctx.fillStyle = TERM_BG;
+  const termBg = layout.termBg || TERM_BG;
+  ctx.fillStyle = termBg;
   ctx.fillRect(layout.termX, layout.termY, width, height);
   ctx.drawImage(canvas, 0, 0, canvas.width, canvas.height, layout.termX, layout.termY, width, height);
 }
@@ -440,6 +552,21 @@ function drawTerminalFallback(ctx, screen, layout) {
   lines.forEach((line, y) => {
     ctx.fillText(line, layout.termX + 4, layout.termY + (y + 1) * layout.cellH - 4);
   });
+}
+
+async function waitForTerminalCanvas(term, host) {
+  let termCanvas = null;
+  let measured = { width: 0, height: 0, canvas: null };
+  for (let attempt = 0; attempt < 10; attempt++) {
+    term.refresh(0, term.rows - 1);
+    await new Promise((resolve) => requestAnimationFrame(resolve));
+    termCanvas = compositeTerminalCanvases(host);
+    measured = measureExportTerminal(term, termCanvas);
+    if (measured.width > 0 && measured.height > 0 && termCanvas) {
+      return { termCanvas, measured };
+    }
+  }
+  return { termCanvas, measured };
 }
 
 export async function composeExportPNG({ screen, replayBytes, opts, backgroundFile, viewerMetrics }) {
@@ -465,10 +592,8 @@ export async function composeExportPNG({ screen, replayBytes, opts, backgroundFi
     if (document.fonts?.ready) {
       await document.fonts.ready;
     }
-    await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
 
-    const termCanvas = compositeTerminalCanvases(host);
-    const measured = measureExportTerminal(term, termCanvas);
+    const { termCanvas, measured } = await waitForTerminalCanvas(term, host);
     let termW = layout.termW;
     let termH = layout.termH;
     if (viewerMetrics?.termW > 0 && viewerMetrics?.termH > 0) {
@@ -521,7 +646,8 @@ export async function composeExportSVG({ screen, opts, viewerMetrics }) {
   const options = validateExportOptions({ ...opts, format: FORMAT_SVG });
   const layout = computeLayout(screen, options, viewerMetrics);
   const lines = screen?.lines || [];
-  const isWireframe = options.chrome_preset === CHROME_OS_WIREFRAME;
+  const osChrome = isOsChrome(options);
+  const osStyle = resolveOsStyle(options);
   let svg = `<?xml version="1.0" encoding="UTF-8"?><svg xmlns="http://www.w3.org/2000/svg" width="${layout.outerW}" height="${layout.outerH}" viewBox="0 0 ${layout.renderOuterW} ${layout.renderOuterH}">`;
 
   if (options.background_mode === BACKGROUND_PRESET) {
@@ -533,11 +659,29 @@ export async function composeExportSVG({ screen, opts, viewerMetrics }) {
     }
   }
 
-  if (isWireframe) {
+  if (osChrome && osStyle === OS_STYLE_MACOS) {
+    const palette = macosChromePalette(options, layout.renderScale);
+    const radius = layout.windowRadius;
+    const titleBar = layout.titleBar;
+    const dot = palette.trafficLightSize;
+    const gap = palette.trafficLightGap;
+    let x = palette.trafficLightInsetX;
+    const cy = palette.trafficLightInsetY + dot / 2;
+    svg += `<rect x="0" y="0" width="${layout.renderOuterW}" height="${layout.renderOuterH}" rx="${radius}" fill="${palette.windowBg}" stroke="${palette.border}" stroke-width="0.5"/>`;
+    for (const color of palette.trafficLights) {
+      svg += `<circle cx="${x + dot / 2}" cy="${cy}" r="${dot / 2}" fill="${color}" stroke="${palette.trafficRing}" stroke-width="0.5"/>`;
+      x += dot + gap;
+    }
+    svg += `<text x="${layout.renderOuterW / 2}" y="${titleBar * 0.62}" text-anchor="middle" fill="${palette.titleColor}" font-family="-apple-system,BlinkMacSystemFont,&quot;SF Pro Text&quot;,system-ui,sans-serif" font-size="${palette.titleFontSize}" font-weight="500">${escapeXml(options.title || "Terminal")}</text>`;
+  } else if (osChrome) {
     const s = layout.renderScale;
     const stroke = STROKE;
     const dash = `${5 * s} ${4 * s}`;
-    svg += `<rect width="${layout.renderOuterW}" height="${layout.renderOuterH}" fill="${FRAME_FILL}" stroke="${stroke}" stroke-width="${2 * s}" stroke-dasharray="${dash}"/>`;
+    if (options.background_mode !== BACKGROUND_TRANSPARENT) {
+      svg += `<rect width="${layout.renderOuterW}" height="${layout.renderOuterH}" fill="${FRAME_FILL}" stroke="${stroke}" stroke-width="${2 * s}" stroke-dasharray="${dash}"/>`;
+    } else {
+      svg += `<rect width="${layout.renderOuterW}" height="${layout.renderOuterH}" fill="none" stroke="${stroke}" stroke-width="${2 * s}" stroke-dasharray="${dash}"/>`;
+    }
     const y = layout.pad + layout.title;
     svg += `<line x1="${layout.pad}" y1="${y}" x2="${layout.renderOuterW - layout.pad}" y2="${y}" stroke="${stroke}" stroke-width="${2 * s}" stroke-dasharray="${dash}"/>`;
     const dot = 10 * s;
@@ -550,7 +694,9 @@ export async function composeExportSVG({ screen, opts, viewerMetrics }) {
     }
     svg += `<text x="${layout.renderOuterW / 2}" y="${layout.pad + layout.title * 0.62}" text-anchor="middle" fill="#e4e4e7" font-family="system-ui" font-size="${12 * s}" font-weight="600">${escapeXml(options.title || "tuile")}</text>`;
   } else {
-    svg += `<rect x="0" y="0" width="${layout.frameW}" height="${layout.frameH}" fill="${TERM_BG}"/>`;
+    if (options.background_mode !== BACKGROUND_TRANSPARENT) {
+      svg += `<rect x="0" y="0" width="${layout.frameW}" height="${layout.frameH}" fill="${layout.termBg || TERM_BG}"/>`;
+    }
     svg += `<rect x="0" y="0" width="${layout.frameW}" height="${layout.frameH}" rx="${layout.radius}" fill="${layout.frameBg}" stroke="${layout.border}" stroke-width="1"/>`;
   }
 
@@ -561,7 +707,7 @@ export async function composeExportSVG({ screen, opts, viewerMetrics }) {
   });
   svg += `</g>`;
 
-  if (!isWireframe && options.show_grid_size) {
+  if (!osChrome && options.show_grid_size) {
     const label = `${layout.cols}×${layout.rows}`;
     const badge = gridLabelMetrics(layout.renderScale);
     const anchorX = layout.frameW;

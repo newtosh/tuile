@@ -84,15 +84,20 @@ func drawBackground(img *image.RGBA, layout Layout, opts Options, custom io.Read
 }
 
 func drawChrome(img *image.RGBA, layout Layout, opts Options) {
-	if opts.ChromePreset == ChromeOSWireframe {
-		drawWireframeChrome(img, layout, opts)
+	if opts.IsOSChrome() {
+		switch opts.ResolvedOSStyle() {
+		case OSStyleMacOS:
+			drawMacOSChrome(img, layout, opts)
+		default:
+			drawWireframeChrome(img, layout, opts)
+		}
 		return
 	}
 	drawViewerFrame(img, layout, opts)
 }
 
 func drawGridLabelOverlay(img *image.RGBA, layout Layout, opts Options) {
-	if opts.ChromePreset == ChromeOSWireframe || !opts.ShowGridSize {
+	if opts.IsOSChrome() || !opts.ShowGridSize {
 		return
 	}
 	drawGridLabel(img, layout, opts)
@@ -113,6 +118,48 @@ func drawWireframeChrome(img *image.RGBA, layout Layout, opts Options) {
 		return
 	}
 	drawText(img, face, opts.Title, w/2, inset+layout.TitleBar*2/3, color.RGBA{228, 228, 231, 255}, true)
+}
+
+func drawMacOSChrome(img *image.RGBA, layout Layout, opts Options) {
+	w, h := layout.RenderOuterW, layout.RenderOuterH
+	radius := layout.WindowRadius
+	titleBar := layout.TitleBar
+	windowBg := MacOSWindowBg(opts)
+	light := opts.Theme == "light"
+	border := color.RGBA{0, 0, 0, 89}
+	titleColor := color.RGBA{245, 245, 247, 183}
+	if light {
+		border = color.RGBA{0, 0, 0, 31}
+		titleColor = color.RGBA{60, 60, 67, 183}
+	}
+
+	fillRoundRect(img, 0, 0, w, h, radius, windowBg)
+	drawMacOSTrafficLights(img, layout)
+	fontPx := EffectiveFontPx(opts)
+	face, err := monoFace(float64(fontPx * layout.RenderScale * 13 / 20))
+	if err == nil {
+		drawText(img, face, opts.Title, w/2, int(float64(titleBar)*0.62), titleColor, true)
+	}
+	strokeRoundRect(img, 0, 0, w, h, radius, border, 1)
+}
+
+func drawMacOSTrafficLights(img *image.RGBA, layout Layout) {
+	dot := MacOSTrafficLightSize() * layout.RenderScale
+	gap := MacOSTrafficLightGap() * layout.RenderScale
+	left := MacOSTrafficLightInset() * layout.RenderScale
+	top := MacOSTrafficLightInset() * layout.RenderScale
+	cy := top + dot/2
+	ring := color.RGBA{0, 0, 0, 26}
+	colors := []color.RGBA{
+		{249, 96, 87, 255},
+		{248, 206, 82, 255},
+		{95, 207, 101, 255},
+	}
+	for i, c := range colors {
+		cx := left + i*(dot+gap) + dot/2
+		fillCircle(img, cx, cy, dot/2, c)
+		strokeCircle(img, cx, cy, dot/2, ring)
+	}
 }
 
 func drawViewerFrame(img *image.RGBA, layout Layout, opts Options) {
@@ -271,6 +318,22 @@ func fillCircle(img *image.RGBA, cx, cy, r int, c color.RGBA) {
 	for dy := -r; dy <= r; dy++ {
 		for dx := -r; dx <= r; dx++ {
 			if dx*dx+dy*dy <= r*r {
+				img.Set(cx+dx, cy+dy, c)
+			}
+		}
+	}
+}
+
+func strokeCircle(img *image.RGBA, cx, cy, r int, c color.RGBA) {
+	outer := r
+	inner := r - 1
+	if inner < 0 {
+		inner = 0
+	}
+	for dy := -outer; dy <= outer; dy++ {
+		for dx := -outer; dx <= outer; dx++ {
+			d2 := dx*dx + dy*dy
+			if d2 <= outer*outer && d2 >= inner*inner {
 				img.Set(cx+dx, cy+dy, c)
 			}
 		}

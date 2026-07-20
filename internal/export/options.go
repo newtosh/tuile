@@ -7,7 +7,12 @@ import (
 
 const (
 	ChromeMinimal     = "minimal"
-	ChromeOSWireframe = "os-wireframe"
+	ChromeOS          = "os"
+	ChromeOSWireframe = "os-wireframe" // deprecated: normalized to ChromeOS + OSStyleWireframe
+
+	OSStyleWireframe = "wireframe"
+	OSStyleMacOS     = "macos"
+	OSStyleWindows   = "windows"
 
 	BackgroundTransparent = "transparent"
 	BackgroundPreset    = "preset"
@@ -22,7 +27,8 @@ const (
 
 // Options configures a terminal screenshot export.
 type Options struct {
-	ChromePreset     string `json:"chrome_preset"`
+	ChromePreset  string `json:"chrome_preset"`
+	ChromeOSStyle string `json:"chrome_os_style,omitempty"`
 	BackgroundMode   string `json:"background_mode"`
 	BackgroundPreset string `json:"background_preset,omitempty"`
 	Scale            int    `json:"scale"`
@@ -51,15 +57,53 @@ func DefaultOptions() Options {
 	}
 }
 
+// NormalizeChrome maps legacy presets and fills OS style defaults.
+func (o *Options) NormalizeChrome() {
+	if o.ChromePreset == ChromeOSWireframe {
+		o.ChromePreset = ChromeOS
+		if o.ChromeOSStyle == "" {
+			o.ChromeOSStyle = OSStyleWireframe
+		}
+	}
+	if o.ChromePreset == ChromeOS && o.ChromeOSStyle == "" {
+		o.ChromeOSStyle = OSStyleWireframe
+	}
+}
+
+// IsOSChrome reports whether export uses an OS window frame.
+func (o Options) IsOSChrome() bool {
+	o.NormalizeChrome()
+	return o.ChromePreset == ChromeOS
+}
+
+// ResolvedOSStyle returns the active OS chrome style after normalization.
+func (o Options) ResolvedOSStyle() string {
+	o.NormalizeChrome()
+	if o.ChromeOSStyle == "" {
+		return OSStyleWireframe
+	}
+	return o.ChromeOSStyle
+}
+
 // Validate normalizes and checks export options.
 func (o *Options) Validate() error {
 	if o == nil {
 		return fmt.Errorf("options required")
 	}
+	o.NormalizeChrome()
 	switch o.ChromePreset {
-	case ChromeMinimal, ChromeOSWireframe:
+	case ChromeMinimal, ChromeOS:
 	default:
 		return fmt.Errorf("invalid chrome_preset %q", o.ChromePreset)
+	}
+	if o.ChromePreset == ChromeOS {
+		switch o.ChromeOSStyle {
+		case OSStyleWireframe, OSStyleMacOS:
+		case OSStyleWindows:
+			return fmt.Errorf("windows chrome is not available yet")
+		default:
+			return fmt.Errorf("invalid chrome_os_style %q", o.ChromeOSStyle)
+		}
 	}
 	switch o.BackgroundMode {
 	case BackgroundTransparent, BackgroundPreset, BackgroundCustom:

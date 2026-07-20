@@ -23,7 +23,7 @@ import {
   pruneClientSessionState,
   saveAckMap,
 } from "./session-state.js";
-import { defaultExportOptions, exportFilename, themeChromeAccents } from "./export-options.js";
+import { defaultExportOptions, exportFilename } from "./export-options.js";
 import { installLigatures } from "./ligatures.js";
 
 initViewerIcons();
@@ -1265,6 +1265,25 @@ function clearObserveGridInlineSizes() {
   }
 }
 
+function applyObserveGridInlineSizes(width, height) {
+  const termEl = terminalElement();
+  if (!termEl || !width || !height) {
+    return;
+  }
+  const pxW = `${width}px`;
+  const pxH = `${height}px`;
+  termEl.style.width = pxW;
+  termEl.style.height = pxH;
+  for (const sel of [".xterm-viewport", ".xterm-screen", "canvas"]) {
+    const el = termEl.querySelector(sel);
+    if (!el) {
+      continue;
+    }
+    el.style.width = pxW;
+    el.style.height = pxH;
+  }
+}
+
 function hideGridFrame() {
   if (terminalGridFrame) {
     terminalGridFrame.hidden = true;
@@ -1331,6 +1350,8 @@ function positionObserveTerminal() {
     return;
   }
 
+  // Canvas renderer has no DOM row layout; pin grid metrics so the terminal is visible.
+  applyObserveGridInlineSizes(width, height);
   termEl.style.marginLeft = `${inset + Math.max(0, (viewW - width) / 2)}px`;
   termEl.style.marginTop = `${inset + Math.max(0, (viewH - height) / 2)}px`;
   updateGridFrame();
@@ -2211,13 +2232,26 @@ const exportDialog = document.getElementById("export-dialog");
 const exportForm = document.getElementById("export-form");
 const exportToggle = document.getElementById("export-toggle");
 const exportClose = document.getElementById("export-close");
+const exportFilenameInput = document.getElementById("export-filename");
+const exportAppearance = document.getElementById("export-appearance");
+const exportTerminalTheme = document.getElementById("export-terminal-theme");
 const exportBgMode = document.getElementById("export-background-mode");
-const exportPresetWrap = document.getElementById("export-preset-wrap");
 const exportCustomWrap = document.getElementById("export-custom-wrap");
 const exportGridWrap = document.getElementById("export-grid-wrap");
 const exportShowGrid = document.getElementById("export-show-grid");
 const exportChrome = document.getElementById("export-chrome");
-const exportThemePreset = document.getElementById("export-background-preset");
+const exportOsStyleWrap = document.getElementById("export-os-style-wrap");
+const exportOsStyle = document.getElementById("export-os-style");
+const exportPreviewStage = document.getElementById("export-preview-stage");
+const exportPreviewImg = document.getElementById("export-preview-img");
+const exportPreviewStatus = document.getElementById("export-preview-status");
+const exportBackgroundFile = document.getElementById("export-background-file");
+const EXPORT_CUSTOM_FADE_MS = 240;
+
+let exportScreenCache = null;
+let exportPreviewUrl = null;
+let exportPreviewTimer = null;
+let exportPreviewRequest = 0;
 
 const EXPORT_THEME_VARS = [
   "--export-frame-accent",
@@ -2226,17 +2260,6 @@ const EXPORT_THEME_VARS = [
   "--export-frame-label-border",
 ];
 
-function applyExportThemePreview(presetId) {
-  if (!terminalWrap) {
-    return;
-  }
-  const accents = themeChromeAccents(presetId);
-  terminalWrap.style.setProperty("--export-frame-accent", accents.border);
-  terminalWrap.style.setProperty("--export-frame-dim", accents.border);
-  terminalWrap.style.setProperty("--export-frame-label-text", accents.labelText);
-  terminalWrap.style.setProperty("--export-frame-label-border", accents.labelBorder);
-}
-
 function clearExportThemePreview() {
   if (!terminalWrap) {
     return;
@@ -2244,14 +2267,6 @@ function clearExportThemePreview() {
   for (const name of EXPORT_THEME_VARS) {
     terminalWrap.style.removeProperty(name);
   }
-}
-
-function syncExportThemePreview() {
-  if (exportBgMode?.value !== "preset") {
-    clearExportThemePreview();
-    return;
-  }
-  applyExportThemePreview(exportThemePreset?.value || "slate");
 }
 
 function viewerExportDefaults() {
@@ -2263,24 +2278,226 @@ function viewerExportDefaults() {
       : Number.isFinite(selected)
         ? selected
         : 14;
+  const appearance = currentAppAppearance();
+  const terminalThemeId =
+    localStorage.getItem(TERMINAL_THEME_KEY) || defaultTerminalThemeIdForAppearance(appearance);
   return defaultExportOptions({
     fontFamily: fontSelect?.value,
     fontSizePx,
+    theme: appearance,
+    terminalThemeId: resolveTerminalThemeId(terminalThemeId, appearance),
     title: sess?.cli || sess?.label || "tuile",
   });
 }
 
-function syncExportBackgroundFields() {
-  const mode = exportBgMode?.value || "preset";
-  if (exportPresetWrap) {
-    exportPresetWrap.hidden = mode !== "preset";
+function populateExportTerminalThemeSelect(selectedId, appearance = exportAppearance?.value || "dark") {
+  if (!exportTerminalTheme) {
+    return;
   }
-  if (exportCustomWrap) {
-    exportCustomWrap.hidden = mode !== "custom";
+  const groups = new Map();
+  for (const entry of listTerminalThemesForAppearance(appearance)) {
+    if (!groups.has(entry.family)) {
+      groups.set(entry.family, []);
+    }
+    groups.get(entry.family).push(entry);
+  }
+  exportTerminalTheme.replaceChildren();
+  for (const [family, entries] of [...groups.entries()].sort((a, b) => a[0].localeCompare(b[0]))) {
+    const group = document.createElement("optgroup");
+    group.label = family;
+    for (const entry of entries) {
+      const option = document.createElement("option");
+      option.value = entry.id;
+      option.textContent = entry.label;
+      option.selected = entry.id === selectedId;
+      group.appendChild(option);
+    }
+    exportTerminalTheme.appendChild(group);
+  }
+}
+
+function reconcileExportTerminalTheme() {
+  const appearance = exportAppearance?.value === "light" ? "light" : "dark";
+  const themeId = resolveTerminalThemeId(exportTerminalTheme?.value, appearance);
+  populateExportTerminalThemeSelect(themeId, appearance);
+  if (exportTerminalTheme) {
+    exportTerminalTheme.value = themeId;
+  }
+  return themeId;
+}
+
+function isExportOsChrome() {
+  return exportChrome?.value === "os";
+}
+
+function collectExportOptionsFromForm() {
+  const appearance = exportAppearance?.value === "light" ? "light" : "dark";
+  return {
+    ...viewerExportDefaults(),
+    chrome_preset: exportChrome?.value || "minimal",
+    chrome_os_style: exportOsStyle?.value || "wireframe",
+    background_mode: exportBgMode?.value || "transparent",
+    scale: Number(document.getElementById("export-scale")?.value || 1),
+    format: document.getElementById("export-format")?.value || "png",
+    theme: appearance,
+    terminal_theme_id: resolveTerminalThemeId(exportTerminalTheme?.value, appearance),
+    title: exportFilenameInput?.value || "tuile",
+    show_grid_size: !isExportOsChrome() && Boolean(exportShowGrid?.checked),
+  };
+}
+
+function clearExportPreview() {
+  if (exportPreviewUrl) {
+    URL.revokeObjectURL(exportPreviewUrl);
+    exportPreviewUrl = null;
+  }
+  if (exportPreviewImg) {
+    exportPreviewImg.hidden = true;
+    exportPreviewImg.removeAttribute("src");
+  }
+  if (exportPreviewStatus) {
+    exportPreviewStatus.hidden = false;
+    exportPreviewStatus.textContent = "Preview will appear here";
+  }
+  exportPreviewStage?.classList.remove("is-loading");
+}
+
+function setExportPreviewLoading() {
+  exportPreviewStage?.classList.add("is-loading");
+  if (exportPreviewStatus && !exportPreviewImg?.src) {
+    exportPreviewStatus.hidden = false;
+    exportPreviewStatus.textContent = "Rendering preview…";
+  }
+}
+
+function setExportPreviewImage(blob) {
+  const previousUrl = exportPreviewUrl;
+  exportPreviewUrl = URL.createObjectURL(blob);
+  if (exportPreviewImg) {
+    exportPreviewImg.onload = () => {
+      if (previousUrl) {
+        URL.revokeObjectURL(previousUrl);
+      }
+      exportPreviewImg.onload = null;
+      exportPreviewStage?.classList.remove("is-loading");
+    };
+    exportPreviewImg.src = exportPreviewUrl;
+    exportPreviewImg.hidden = false;
+  }
+  if (exportPreviewStatus) {
+    exportPreviewStatus.hidden = true;
+  }
+}
+
+async function ensureExportScreenData() {
+  if (exportScreenCache) {
+    return exportScreenCache;
+  }
+  if (!sessionId || !token) {
+    throw new Error("no active session");
+  }
+  const res = await fetchWithTimeout(
+    apiURL(`/v1/sessions/${sessionId}/screen?replay=1`),
+    { headers: authHeaders() },
+    LOAD_SNAPSHOT_TIMEOUT_MS
+  );
+  if (!res.ok) {
+    throw new Error(`screen fetch failed: ${res.status}`);
+  }
+  const body = await res.json();
+  exportScreenCache = {
+    screen: body.screen,
+    replayBytes: body.replay_b64 ? decodeReplayB64(body.replay_b64) : null,
+  };
+  return exportScreenCache;
+}
+
+function viewerExportMetrics() {
+  const grid = measureTerminalGrid();
+  return {
+    termW: grid.width,
+    termH: grid.height,
+    cols: ptyCols,
+    rows: ptyRows,
+    fontSizePx: term?.options?.fontSize,
+    fontFamily: fontSelect?.value || term?.options?.fontFamily,
+  };
+}
+
+function scheduleExportPreview() {
+  clearTimeout(exportPreviewTimer);
+  exportPreviewTimer = setTimeout(() => {
+    void renderExportPreview();
+  }, 120);
+}
+
+async function renderExportPreview() {
+  if (!exportDialog?.open) {
+    return;
+  }
+  const requestId = ++exportPreviewRequest;
+  setExportPreviewLoading();
+  try {
+    const { screen, replayBytes } = await ensureExportScreenData();
+    if (requestId !== exportPreviewRequest || !exportDialog?.open) {
+      return;
+    }
+    const opts = {
+      ...collectExportOptionsFromForm(),
+      format: "png",
+    };
+    const bgFile = exportBackgroundFile?.files?.[0] || null;
+    const { composeExport } = await import("./export-compositor.js");
+    const blob = await composeExport({
+      screen,
+      replayBytes,
+      opts,
+      backgroundFile: bgFile,
+      viewerMetrics: viewerExportMetrics(),
+    });
+    if (requestId !== exportPreviewRequest || !exportDialog?.open) {
+      return;
+    }
+    setExportPreviewImage(blob);
+  } catch (err) {
+    if (requestId !== exportPreviewRequest || !exportDialog?.open) {
+      return;
+    }
+    exportPreviewStage?.classList.remove("is-loading");
+    if (exportPreviewStatus) {
+      exportPreviewStatus.hidden = !exportPreviewImg?.src;
+      exportPreviewStatus.textContent = `Preview failed: ${err.message}`;
+    }
+  }
+}
+
+function syncExportChromeFields() {
+  const osChrome = isExportOsChrome();
+  if (exportOsStyleWrap) {
+    exportOsStyleWrap.hidden = !osChrome;
+    exportOsStyleWrap.setAttribute("aria-hidden", String(!osChrome));
   }
   if (exportGridWrap) {
-    exportGridWrap.hidden = exportChrome?.value === "os-wireframe";
+    exportGridWrap.hidden = osChrome;
+    exportGridWrap.setAttribute("aria-hidden", String(osChrome));
   }
+}
+
+function syncExportBackgroundFields() {
+  const mode = exportBgMode?.value || "transparent";
+  const showCustom = mode === "custom";
+  if (exportCustomWrap) {
+    exportCustomWrap.classList.toggle("is-visible", showCustom);
+    exportCustomWrap.setAttribute("aria-hidden", String(!showCustom));
+    if (!showCustom) {
+      window.setTimeout(() => {
+        if (exportBgMode?.value !== "custom" && exportBackgroundFile) {
+          exportBackgroundFile.value = "";
+        }
+      }, EXPORT_CUSTOM_FADE_MS);
+    }
+  }
+  syncExportChromeFields();
 }
 
 function syncExportToggle() {
@@ -2305,34 +2522,67 @@ function openExportDialog() {
     setStatus("Attach to a session before exporting.");
     return;
   }
+  exportScreenCache = null;
+  exportPreviewRequest += 1;
   const defaults = viewerExportDefaults();
-  document.getElementById("export-chrome").value = defaults.chrome_preset;
+  exportChrome.value = defaults.chrome_preset;
+  if (exportOsStyle) {
+    exportOsStyle.value = defaults.chrome_os_style || "wireframe";
+  }
   exportBgMode.value = defaults.background_mode;
-  document.getElementById("export-background-preset").value = defaults.background_preset;
   document.getElementById("export-scale").value = String(defaults.scale);
   document.getElementById("export-format").value = defaults.format;
-  document.getElementById("export-title").value = defaults.title;
+  exportFilenameInput.value = defaults.title;
+  if (exportAppearance) {
+    exportAppearance.value = defaults.theme;
+  }
+  populateExportTerminalThemeSelect(defaults.terminal_theme_id, defaults.theme);
+  if (exportTerminalTheme) {
+    exportTerminalTheme.value = defaults.terminal_theme_id;
+  }
   if (exportShowGrid) {
     exportShowGrid.checked = defaults.show_grid_size;
   }
+  if (exportBackgroundFile) {
+    exportBackgroundFile.value = "";
+  }
   syncExportBackgroundFields();
-  syncExportThemePreview();
+  syncExportChromeFields();
   exportDialog.showModal();
+  exportFilenameInput?.focus({ preventScroll: true });
+  scheduleExportPreview();
 }
 
 function closeExportDialog() {
+  exportPreviewRequest += 1;
+  clearTimeout(exportPreviewTimer);
+  exportPreviewTimer = null;
+  exportScreenCache = null;
+  clearExportPreview();
   exportDialog?.close();
   clearExportThemePreview();
 }
 
 exportToggle?.addEventListener("click", () => openExportDialog());
 exportClose?.addEventListener("click", () => closeExportDialog());
+exportChrome?.addEventListener("change", () => {
+  syncExportChromeFields();
+  scheduleExportPreview();
+});
+exportOsStyle?.addEventListener("change", scheduleExportPreview);
 exportBgMode?.addEventListener("change", () => {
   syncExportBackgroundFields();
-  syncExportThemePreview();
+  scheduleExportPreview();
 });
-exportThemePreset?.addEventListener("change", syncExportThemePreview);
-exportChrome?.addEventListener("change", syncExportBackgroundFields);
+exportAppearance?.addEventListener("change", () => {
+  reconcileExportTerminalTheme();
+  scheduleExportPreview();
+});
+exportTerminalTheme?.addEventListener("change", scheduleExportPreview);
+document.getElementById("export-scale")?.addEventListener("change", scheduleExportPreview);
+document.getElementById("export-format")?.addEventListener("change", scheduleExportPreview);
+exportShowGrid?.addEventListener("change", scheduleExportPreview);
+exportBackgroundFile?.addEventListener("change", scheduleExportPreview);
 
 exportForm?.addEventListener("submit", async (ev) => {
   ev.preventDefault();
@@ -2340,46 +2590,19 @@ exportForm?.addEventListener("submit", async (ev) => {
     setStatus("No active session to export.");
     return;
   }
-  const opts = {
-    ...viewerExportDefaults(),
-    chrome_preset: document.getElementById("export-chrome").value,
-    background_mode: exportBgMode.value,
-    background_preset: document.getElementById("export-background-preset").value,
-    scale: Number(document.getElementById("export-scale").value),
-    format: document.getElementById("export-format").value,
-    title: document.getElementById("export-title").value || "tuile",
-    show_grid_size: exportChrome?.value !== "os-wireframe" && Boolean(exportShowGrid?.checked),
-  };
-  const bgFile = document.getElementById("export-background-file")?.files?.[0] || null;
+  const opts = collectExportOptionsFromForm();
+  const bgFile = exportBackgroundFile?.files?.[0] || null;
   try {
     setStatus("Exporting screenshot…");
-    const res = await fetchWithTimeout(
-      apiURL(`/v1/sessions/${sessionId}/screen?replay=1`),
-      { headers: authHeaders() },
-      LOAD_SNAPSHOT_TIMEOUT_MS
-    );
-    if (!res.ok) {
-      throw new Error(`screen fetch failed: ${res.status}`);
-    }
-    const body = await res.json();
-    const replayBytes = body.replay_b64 ? decodeReplayB64(body.replay_b64) : null;
-    const grid = measureTerminalGrid();
+    const { screen, replayBytes } = await ensureExportScreenData();
     const { composeExport, downloadBlob } = await import("./export-compositor.js");
     const blob = await composeExport({
-      screen: body.screen,
+      screen,
       replayBytes,
       opts,
       backgroundFile: bgFile,
-      viewerMetrics: {
-        termW: grid.width,
-        termH: grid.height,
-        cols: ptyCols,
-        rows: ptyRows,
-        fontSizePx: term?.options?.fontSize,
-        fontFamily: fontSelect?.value || term?.options?.fontFamily,
-      },
+      viewerMetrics: viewerExportMetrics(),
     });
-    const ext = opts.format === "svg" ? "svg" : "png";
     downloadBlob(blob, exportFilename(opts.title, opts.format));
     setStatus("Export downloaded.");
     closeExportDialog();

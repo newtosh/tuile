@@ -4,11 +4,15 @@ import { describe, it } from "node:test";
 import {
   BACKGROUND_PRESETS,
   CHROME_MINIMAL,
+  CHROME_OS,
+  OS_STYLE_MACOS,
+  OS_STYLE_WIREFRAME,
   COMPACT_SUPER_SAMPLE,
   defaultExportOptions,
   exportFilename,
   exportScales,
   themeChromeAccents,
+  macosTerminalInset,
   titleBarHeight,
   validateExportOptions,
   viewerFrameMetrics,
@@ -42,8 +46,37 @@ describe("export-options", () => {
     assert.equal(scales.downscale, 1);
   });
 
-  it("os-wireframe title bar is taller", () => {
-    assert.ok(titleBarHeight("os-wireframe") > titleBarHeight(CHROME_MINIMAL));
+  it("os wireframe title bar is taller than minimal", () => {
+    assert.ok(titleBarHeight(CHROME_OS, OS_STYLE_WIREFRAME) > titleBarHeight(CHROME_MINIMAL));
+  });
+
+  it("normalizes legacy os-wireframe preset", () => {
+    const opts = validateExportOptions({ ...defaultExportOptions(), chrome_preset: "os-wireframe" });
+    assert.equal(opts.chrome_preset, CHROME_OS);
+    assert.equal(opts.chrome_os_style, OS_STYLE_WIREFRAME);
+  });
+
+  it("macos os style validates", () => {
+    const opts = validateExportOptions({
+      ...defaultExportOptions(),
+      chrome_preset: CHROME_OS,
+      chrome_os_style: OS_STYLE_MACOS,
+    });
+    assert.equal(opts.chrome_os_style, OS_STYLE_MACOS);
+  });
+
+  it("macos layout insets terminal content from window edge", () => {
+    const screen = { cols: 10, rows: 2, lines: ["a", "b"] };
+    const macos = computeLayout(screen, {
+      ...defaultExportOptions(),
+      chrome_preset: CHROME_OS,
+      chrome_os_style: OS_STYLE_MACOS,
+    });
+    assert.equal(macos.termInset, macosTerminalInset() * macos.renderScale);
+    assert.equal(macos.termX, macos.termInset);
+    assert.equal(macos.termY, macos.titleBar + macos.termInset);
+    assert.equal(macos.renderOuterW, macos.termW + macos.termInset * 2);
+    assert.equal(macos.renderOuterH, macos.titleBar + macos.termH + macos.termInset * 2);
   });
 
   it("viewer frame metrics match observe mode", () => {

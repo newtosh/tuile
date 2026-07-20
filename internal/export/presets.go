@@ -1,5 +1,7 @@
 package export
 
+import "image/color"
+
 // BackgroundSpec describes a preset backdrop.
 type BackgroundSpec struct {
 	Kind  string // solid | gradient
@@ -79,13 +81,52 @@ func ThemeChromeAccentFor(opts Options) ThemeChromeAccent {
 }
 
 // TitleBarHeight returns chrome title bar height at 1x scale.
-func TitleBarHeight(chrome string) int {
-	switch chrome {
-	case ChromeOSWireframe:
-		return 36
-	default:
+func TitleBarHeight(chrome string, osStyle string) int {
+	if chrome == ChromeMinimal {
 		return 0
 	}
+	if osStyle == OSStyleMacOS {
+		return MacOSTitleBarHeight()
+	}
+	return 36
+}
+
+// MacOSTitleBarHeight returns the macOS-style title bar height at 1x.
+func MacOSTitleBarHeight() int {
+	return 28
+}
+
+// MacOSWindowRadius returns the macOS-style window corner radius at 1x.
+func MacOSWindowRadius() int {
+	return 10
+}
+
+// MacOSTrafficLightSize returns traffic light diameter at 1x.
+func MacOSTrafficLightSize() int {
+	return 12
+}
+
+// MacOSTrafficLightInset returns traffic light offset from window edge at 1x.
+func MacOSTrafficLightInset() int {
+	return 8
+}
+
+// MacOSTrafficLightGap returns spacing between traffic lights at 1x.
+func MacOSTrafficLightGap() int {
+	return 8
+}
+
+// MacOSTerminalInset returns text margin inside the window at 1x.
+func MacOSTerminalInset() int {
+	return 8
+}
+
+// MacOSWindowBg returns the unified window/title bar fill for export chrome.
+func MacOSWindowBg(opts Options) color.RGBA {
+	if opts.Theme == "light" {
+		return color.RGBA{255, 255, 255, 255}
+	}
+	return color.RGBA{10, 10, 10, 255}
 }
 
 // ChromePadding returns outer chrome inset at 1x for wireframe preset.
