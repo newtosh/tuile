@@ -1,0 +1,6 @@
+Fira Code is licensed under the SIL Open Font License 1.1.
+Copyright (c) Nikita Prokopov and contributors.
+https://github.com/tonsky/FiraCode/blob/master/LICENSE
+
+FiraCode Nerd Font combines Fira Code with Nerd Fonts patches.
+Nerd Fonts: https://github.com/ryanoasis/nerd-fonts (SIL OFL 1.1)

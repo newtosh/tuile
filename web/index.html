@@ -3,13 +3,29 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <script>
+      (function () {
+        var key = "tuile_app_appearance";
+        var mode = sessionStorage.getItem(key) || localStorage.getItem(key);
+        function resolveAppearance(preference) {
+          if (preference === "auto") {
+            return window.matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark";
+          }
+          if (preference === "light" || preference === "dark") {
+            return preference;
+          }
+          return "dark";
+        }
+        document.documentElement.dataset.appearance = resolveAppearance(mode);
+      })();
+    </script>
     <title>Tuile — Session Viewer</title>
     <link rel="icon" href="/assets/favicon.ico" sizes="any" />
     <link rel="icon" href="/assets/favicon.svg" type="image/svg+xml" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
-      href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600&family=Outfit:wght@400;500;600&display=swap"
+      href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600&display=swap"
       rel="stylesheet"
     />
     <link rel="stylesheet" href="/assets/style.css" />
@@ -42,11 +58,24 @@
           </button>
           <div id="settings-menu" class="settings-menu" role="menu" hidden>
             <div class="menu-field">
+              <label class="menu-label" for="app-appearance">App appearance</label>
+              <select id="app-appearance">
+                <option value="auto">Auto</option>
+                <option value="dark" selected>Dark</option>
+                <option value="light">Light</option>
+              </select>
+            </div>
+            <div class="menu-field">
+              <label class="menu-label" for="terminal-theme">Terminal theme</label>
+              <select id="terminal-theme" aria-label="Terminal color theme"></select>
+            </div>
+            <div class="menu-field">
               <label class="menu-label" for="font-family">Font</label>
               <select id="font-family">
-                <option value="'Fira Code', monospace" selected>Fira Code</option>
+                <option value="'JetBrainsMono Nerd Font', monospace" selected>JetBrainsMono Nerd Font</option>
+                <option value="'FiraCode Nerd Font Mono', monospace">FiraCode Nerd Font Mono</option>
                 <option value="'JetBrains Mono', monospace">JetBrains Mono</option>
-                <option value="'IBM Plex Mono', monospace">IBM Plex Mono</option>
+                <option value="'Fira Code', monospace">Fira Code</option>
                 <option value="monospace">System mono</option>
               </select>
             </div>
@@ -104,6 +133,18 @@
         </div>
       </div>
     </header>
+    <div id="appearance-hint" class="appearance-hint hidden" role="status" aria-live="polite">
+      <span id="appearance-hint-icon" class="appearance-hint-icon icon-slot" aria-hidden="true"></span>
+      <p id="appearance-hint-text" class="appearance-hint-text"></p>
+      <div class="appearance-hint-actions">
+        <button id="appearance-hint-apply" type="button" class="appearance-hint-btn primary">
+          Switch appearance
+        </button>
+        <button id="appearance-hint-dismiss" type="button" class="appearance-hint-btn" aria-label="Dismiss">
+          Not now
+        </button>
+      </div>
+    </div>
     <div id="layout">
       <aside id="session-panel">
         <div class="panel-header">

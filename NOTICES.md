@@ -25,7 +25,14 @@ Loaded from jsDelivr in `web/index.html`:
 | [@xterm/addon-fit](https://github.com/xtermjs/xterm.js) | MIT | Terminal fit addon |
 | [@xterm/addon-unicode11](https://github.com/xtermjs/xterm.js) | MIT | Unicode width tables |
 | [@xterm/addon-webgl](https://github.com/xtermjs/xterm.js) | MIT | Optional WebGL renderer |
-| [Google Fonts](https://fonts.google.com/) (Fira Code, JetBrains Mono, Outfit) | [SIL OFL 1.1](https://scripts.sil.org/OFL) | Viewer typography |
+| [Google Fonts](https://fonts.google.com/) (Outfit) | [SIL OFL 1.1](https://scripts.sil.org/OFL) | UI typography (CDN) |
+
+Bundled under `web/fonts/` (embedded, served at `/assets/fonts/`):
+
+| Font | License | Use in Tuile |
+|------|---------|--------------|
+| JetBrainsMono Nerd Font, FiraCode Nerd Font Mono | SIL OFL 1.1 | Terminal icons and ligatures (Nerd Fonts v3.4.0) |
+| JetBrains Mono, Fira Code (plain) | SIL OFL 1.1 | Non-Nerd mono fallback |
 
 ## Embedded assets
 
