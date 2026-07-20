@@ -149,14 +149,59 @@ func WindowsTerminalInset() int {
 	return 8
 }
 
-// WindowsTabInsetX returns the active tab label inset from the left edge at 1x.
-func WindowsTabInsetX() int {
+// WindowsTabRowMarginX returns the tab row inset from the left window edge at 1x.
+func WindowsTabRowMarginX() int {
 	return 8
+}
+
+// WindowsTabRowMarginTop returns the tab row inset from the top window edge at 1x.
+func WindowsTabRowMarginTop() int {
+	return 4
+}
+
+// WindowsTabTopRadius returns the active tab top corner radius at 1x.
+func WindowsTabTopRadius() int {
+	return 5
 }
 
 // WindowsTabPaddingX returns horizontal padding inside the active tab label at 1x.
 func WindowsTabPaddingX() int {
 	return 10
+}
+
+// WindowsTabWidth returns the fixed active tab width at 1x.
+func WindowsTabWidth() int {
+	return 168
+}
+
+// WindowsTabCloseButtonWidth returns the tab close control width at 1x.
+func WindowsTabCloseButtonWidth() int {
+	return 20
+}
+
+// WindowsTabIconGap returns space between tab icon and label at 1x.
+func WindowsTabIconGap() int {
+	return 8
+}
+
+// WindowsTabIconSize returns the tab profile icon size at 1x.
+func WindowsTabIconSize() int {
+	return 16
+}
+
+// WindowsNewTabButtonWidth returns the new-tab control width at 1x.
+func WindowsNewTabButtonWidth() int {
+	return 28
+}
+
+// WindowsTabMenuButtonWidth returns the tab menu chevron control width at 1x.
+func WindowsTabMenuButtonWidth() int {
+	return 28
+}
+
+// WindowsAppName returns the application name shown in the Windows tab.
+func WindowsAppName() string {
+	return "tuile"
 }
 
 // WindowsCaptionButtonWidth returns caption button width at 1x.
@@ -171,6 +216,22 @@ func WindowsWindowBg(opts Options) color.RGBA {
 		return color.RGBA{243, 243, 243, 255}
 	}
 	return color.RGBA{12, 12, 12, 255}
+}
+
+// WindowsTabRowBg returns the unfocused tab row background at 1x.
+func WindowsTabRowBg(opts Options) color.RGBA {
+	if opts.Theme == "light" {
+		return color.RGBA{236, 236, 236, 255}
+	}
+	return color.RGBA{51, 51, 51, 255}
+}
+
+// WindowsTabActiveTopAccent returns the active tab top highlight at 1x.
+func WindowsTabActiveTopAccent(opts Options) color.RGBA {
+	if opts.Theme == "light" {
+		return color.RGBA{0, 0, 0, 31}
+	}
+	return color.RGBA{255, 255, 255, 36}
 }
 
 // ChromePadding returns outer chrome inset at 1x for wireframe preset.

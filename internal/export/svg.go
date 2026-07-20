@@ -128,15 +128,17 @@ func writeSVGMacOSChrome(buf *bytes.Buffer, layout Layout, opts Options) {
 func writeSVGWindowsChrome(buf *bytes.Buffer, layout Layout, opts Options) {
 	light := opts.Theme == "light"
 	windowBg := "#0C0C0C"
+	tabRowBg := "#333333"
+	tabAccent := "rgba(255,255,255,0.14)"
 	border := "rgba(255,255,255,0.06)"
 	tabText := "#CCCCCC"
-	separator := "#333333"
 	captionColor := "rgba(255,255,255,0.9)"
 	if light {
 		windowBg = "#F3F3F3"
+		tabRowBg = "#ECECEC"
+		tabAccent = "rgba(0,0,0,0.12)"
 		border = "rgba(0,0,0,0.12)"
 		tabText = "#1A1A1A"
-		separator = "#E5E5E5"
 		captionColor = "rgba(0,0,0,0.9)"
 	}
 	radius := layout.WindowRadius
@@ -148,10 +150,38 @@ func writeSVGWindowsChrome(buf *bytes.Buffer, layout Layout, opts Options) {
 		thickness = 1
 	}
 	fmt.Fprintf(buf, `<rect x="0" y="0" width="%d" height="%d" rx="%d" fill="%s" stroke="%s" stroke-width="0.5"/>`, layout.RenderOuterW, layout.RenderOuterH, radius, windowBg, border)
-	tabX := (WindowsTabInsetX() + WindowsTabPaddingX()) * layout.RenderScale
-	fontSize := 12 * layout.RenderScale
-	fmt.Fprintf(buf, `<text x="%d" y="%d" dominant-baseline="middle" fill="%s" font-family="Segoe UI Variable,Segoe UI,system-ui,sans-serif" font-size="%d" font-weight="400">%s</text>`, tabX, titleBar/2, tabText, fontSize, html.EscapeString(opts.Title))
-	fmt.Fprintf(buf, `<rect x="0" y="%d" width="%d" height="1" fill="%s"/>`, titleBar-1, layout.RenderOuterW, separator)
+	scale := layout.RenderScale
+	tabX := WindowsTabRowMarginX() * scale
+	tabY := WindowsTabRowMarginTop() * scale
+	tabPad := WindowsTabPaddingX() * scale
+	tabW := WindowsTabWidth() * scale
+	tabH := titleBar - WindowsTabRowMarginTop()*scale
+	tabR := WindowsTabTopRadius() * scale
+	iconSize := WindowsTabIconSize() * scale
+	iconGap := WindowsTabIconGap() * scale
+	fontSize := 12 * scale
+	appName := WindowsAppName()
+	iconX := tabX + tabPad
+	iconY := tabY + (tabH-iconSize)/2
+	textX := iconX + iconSize + iconGap
+	closeCx := tabX + tabW - tabPad - WindowsTabCloseButtonWidth()*scale/2
+	closeIcon := int(3.5*float64(scale) + 0.5)
+	controlsX := tabX + tabW
+	controlsCy := tabY + tabH/2
+	newTabCx := controlsX + WindowsNewTabButtonWidth()*scale/2
+	menuCx := controlsX + WindowsNewTabButtonWidth()*scale + WindowsTabMenuButtonWidth()*scale/2
+	plus := 5 * scale
+	chev := int(3.5*float64(scale) + 0.5)
+	fmt.Fprintf(buf, `<rect x="0" y="0" width="%d" height="%d" fill="%s"/>`, layout.RenderOuterW, titleBar, tabRowBg)
+	fmt.Fprintf(buf, `<path d="M%d %d L%d %d Q%d %d %d %d L%d %d Q%d %d %d %d L%d %d Z" fill="%s"/>`, tabX, tabY+tabH, tabX, tabY+tabR, tabX, tabY, tabX+tabR, tabY, tabX+tabW-tabR, tabY, tabX+tabW, tabY, tabX+tabW, tabY+tabR, tabX+tabW, tabY+tabH, windowBg)
+	fmt.Fprintf(buf, `<rect x="%d" y="%d" width="%d" height="%d" fill="%s"/>`, tabX, tabY, tabW, maxInt(1, scale), tabAccent)
+	fmt.Fprintf(buf, `<g transform="translate(%d,%d) scale(%g)"><rect width="32" height="32" rx="6" fill="#0c0c0e"/><rect x="6" y="6" width="9" height="9" rx="1.5" fill="#e8a54b"/><rect x="17" y="6" width="9" height="9" rx="1.5" fill="#e8a54b" opacity="0.82"/><rect x="6" y="17" width="9" height="9" rx="1.5" fill="#e8a54b" opacity="0.82"/><rect x="17" y="17" width="9" height="9" rx="1.5" fill="#e8a54b"/></g>`, iconX, iconY, float64(iconSize)/32)
+	fmt.Fprintf(buf, `<text x="%d" y="%d" dominant-baseline="middle" fill="%s" font-family="Segoe UI Variable,Segoe UI,system-ui,sans-serif" font-size="%d" font-weight="400">%s</text>`, textX, controlsCy, tabText, fontSize, html.EscapeString(appName))
+	fmt.Fprintf(buf, `<line x1="%d" y1="%d" x2="%d" y2="%d" stroke="%s" stroke-width="%d" stroke-linecap="round"/>`, closeCx-closeIcon, controlsCy-closeIcon, closeCx+closeIcon, controlsCy+closeIcon, captionColor, thickness)
+	fmt.Fprintf(buf, `<line x1="%d" y1="%d" x2="%d" y2="%d" stroke="%s" stroke-width="%d" stroke-linecap="round"/>`, closeCx+closeIcon, controlsCy-closeIcon, closeCx-closeIcon, controlsCy+closeIcon, captionColor, thickness)
+	fmt.Fprintf(buf, `<line x1="%d" y1="%d" x2="%d" y2="%d" stroke="%s" stroke-width="%d" stroke-linecap="round"/>`, newTabCx-plus, controlsCy, newTabCx+plus, controlsCy, captionColor, thickness)
+	fmt.Fprintf(buf, `<line x1="%d" y1="%d" x2="%d" y2="%d" stroke="%s" stroke-width="%d" stroke-linecap="round"/>`, newTabCx, controlsCy-plus, newTabCx, controlsCy+plus, captionColor, thickness)
+	fmt.Fprintf(buf, `<polyline points="%d,%d %d,%d %d,%d" fill="none" stroke="%s" stroke-width="%d" stroke-linecap="round" stroke-linejoin="round"/>`, menuCx-chev, controlsCy-chev*35/100, menuCx, controlsCy+chev*65/100, menuCx+chev, controlsCy-chev*35/100, captionColor, thickness)
 	kinds := []string{"minimize", "maximize", "close"}
 	for i, kind := range kinds {
 		x := layout.RenderOuterW - (len(kinds)-i)*btnW

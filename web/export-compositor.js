@@ -222,6 +222,28 @@ function roundRectPath(ctx, x, y, w, h, r) {
   ctx.closePath();
 }
 
+function roundRectTopPath(ctx, x, y, w, h, r) {
+  const radius = Math.min(r, w / 2, h);
+  ctx.beginPath();
+  ctx.moveTo(x, y + h);
+  ctx.lineTo(x, y + radius);
+  ctx.quadraticCurveTo(x, y, x + radius, y);
+  ctx.lineTo(x + w - radius, y);
+  ctx.quadraticCurveTo(x + w, y, x + w, y + radius);
+  ctx.lineTo(x + w, y + h);
+  ctx.closePath();
+}
+
+function fillRoundRectTop(ctx, x, y, w, h, r, color) {
+  ctx.fillStyle = color;
+  roundRectTopPath(ctx, x, y, w, h, r);
+  ctx.fill();
+}
+
+function windowsTabTopPathSvg(x, y, w, h, r) {
+  return `M${x} ${y + h} L${x} ${y + r} Q${x} ${y} ${x + r} ${y} L${x + w - r} ${y} Q${x + w} ${y} ${x + w} ${y + r} L${x + w} ${y + h} Z`;
+}
+
 function canvasSize(layout) {
   return {
     w: layout.renderOuterW ?? layout.outerW,
@@ -362,16 +384,135 @@ function drawMacOSTrafficLights(ctx, palette) {
   }
 }
 
-function drawWindowsActiveTab(ctx, palette, title) {
-  const { titleBarHeight, tabInsetX, tabPaddingX, tabText, tabRowSeparator, titleFontSize } = palette;
+function drawTuileFavicon(ctx, x, y, size, image) {
+  if (image) {
+    ctx.drawImage(image, x, y, size, size);
+    return;
+  }
+  const u = size / 32;
+  roundRectPath(ctx, x, y, size, size, 6 * u);
+  ctx.fillStyle = "#0c0c0e";
+  ctx.fill();
+  const squares = [
+    { x: 6, y: 6, o: 1 },
+    { x: 17, y: 6, o: 0.82 },
+    { x: 6, y: 17, o: 0.82 },
+    { x: 17, y: 17, o: 1 },
+  ];
+  for (const sq of squares) {
+    ctx.save();
+    ctx.globalAlpha = sq.o;
+    ctx.fillStyle = "#e8a54b";
+    roundRectPath(ctx, x + sq.x * u, y + sq.y * u, 9 * u, 9 * u, 1.5 * u);
+    ctx.fill();
+    ctx.restore();
+  }
+}
+
+function tuileFaviconSvg(x, y, size) {
+  const s = size / 32;
+  return `<g transform="translate(${x},${y}) scale(${s})"><rect width="32" height="32" rx="6" fill="#0c0c0e"/><rect x="6" y="6" width="9" height="9" rx="1.5" fill="#e8a54b"/><rect x="17" y="6" width="9" height="9" rx="1.5" fill="#e8a54b" opacity="0.82"/><rect x="6" y="17" width="9" height="9" rx="1.5" fill="#e8a54b" opacity="0.82"/><rect x="17" y="17" width="9" height="9" rx="1.5" fill="#e8a54b"/></g>`;
+}
+
+function drawWindowsTabCloseButton(ctx, palette, tabX, tabY, tabW, tabH) {
+  const { tabPaddingX, tabCloseButtonWidth, captionColor, iconScale } = palette;
+  const cx = tabX + tabW - tabPaddingX - tabCloseButtonWidth / 2;
+  const cy = tabY + tabH / 2;
+  const icon = 3.5 * iconScale;
+  ctx.strokeStyle = captionColor;
+  ctx.lineWidth = Math.max(1, iconScale * 0.75);
+  ctx.lineCap = "round";
+  ctx.beginPath();
+  ctx.moveTo(cx - icon, cy - icon);
+  ctx.lineTo(cx + icon, cy + icon);
+  ctx.moveTo(cx + icon, cy - icon);
+  ctx.lineTo(cx - icon, cy + icon);
+  ctx.stroke();
+}
+
+function drawWindowsNewTabButton(ctx, palette, x, cy) {
+  const { newTabButtonWidth, captionColor, iconScale } = palette;
+  const cx = x + newTabButtonWidth / 2;
+  const icon = 5 * iconScale;
+  ctx.strokeStyle = captionColor;
+  ctx.lineWidth = Math.max(1, iconScale * 0.75);
+  ctx.lineCap = "round";
+  ctx.beginPath();
+  ctx.moveTo(cx - icon, cy);
+  ctx.lineTo(cx + icon, cy);
+  ctx.moveTo(cx, cy - icon);
+  ctx.lineTo(cx, cy + icon);
+  ctx.stroke();
+}
+
+function drawWindowsTabMenuChevron(ctx, palette, x, cy) {
+  const { tabMenuButtonWidth, captionColor, iconScale } = palette;
+  const cx = x + tabMenuButtonWidth / 2;
+  const half = 3.5 * iconScale;
+  ctx.strokeStyle = captionColor;
+  ctx.lineWidth = Math.max(1, iconScale * 0.75);
+  ctx.lineCap = "round";
+  ctx.lineJoin = "round";
+  ctx.beginPath();
+  ctx.moveTo(cx - half, cy - half * 0.35);
+  ctx.lineTo(cx, cy + half * 0.65);
+  ctx.lineTo(cx + half, cy - half * 0.35);
+  ctx.stroke();
+}
+
+function drawWindowsTabRow(ctx, palette, faviconImage) {
+  const {
+    titleBarHeight,
+    tabRowMarginX,
+    tabRowMarginTop,
+    tabTopRadius,
+    tabPaddingX,
+    tabWidth,
+    tabIconSize,
+    tabIconGap,
+    tabText,
+    tabRowBg,
+    tabActiveBg,
+    tabActiveTopAccent,
+    titleFontSize,
+    appName,
+    newTabButtonWidth,
+    tabCloseButtonWidth,
+  } = palette;
+  const tabX = tabRowMarginX;
+  const tabY = tabRowMarginTop;
+  const tabW = tabWidth;
+  const tabH = titleBarHeight - tabRowMarginTop;
+  const rowW = ctx.canvas.width;
+  ctx.fillStyle = tabRowBg;
+  ctx.fillRect(0, 0, rowW, titleBarHeight);
+  fillRoundRectTop(ctx, tabX, tabY, tabW, tabH, tabTopRadius, tabActiveBg);
+  ctx.save();
+  roundRectTopPath(ctx, tabX, tabY, tabW, tabH, tabTopRadius);
+  ctx.clip();
+  ctx.fillStyle = tabActiveTopAccent;
+  ctx.fillRect(tabX, tabY, tabW, Math.max(1, palette.iconScale ?? 1));
+  ctx.restore();
+  const iconY = tabY + (tabH - tabIconSize) / 2;
+  const iconX = tabX + tabPaddingX;
+  drawTuileFavicon(ctx, iconX, iconY, tabIconSize, faviconImage);
+  const textX = iconX + tabIconSize + tabIconGap;
+  const textMaxW = tabW - tabPaddingX * 2 - tabIconSize - tabIconGap - tabCloseButtonWidth;
   ctx.font = `400 ${titleFontSize}px "Segoe UI Variable", "Segoe UI", system-ui, sans-serif`;
-  const text = title || "Terminal";
   ctx.fillStyle = tabText;
   ctx.textAlign = "left";
   ctx.textBaseline = "middle";
-  ctx.fillText(text, tabInsetX + tabPaddingX, titleBarHeight / 2);
-  ctx.fillStyle = tabRowSeparator;
-  ctx.fillRect(0, titleBarHeight - 1, ctx.canvas.width, 1);
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(textX, tabY, Math.max(0, textMaxW), tabH);
+  ctx.clip();
+  ctx.fillText(appName, textX, tabY + tabH / 2);
+  ctx.restore();
+  drawWindowsTabCloseButton(ctx, palette, tabX, tabY, tabW, tabH);
+  const controlsCy = tabY + tabH / 2;
+  const controlsX = tabX + tabW;
+  drawWindowsNewTabButton(ctx, palette, controlsX, controlsCy);
+  drawWindowsTabMenuChevron(ctx, palette, controlsX + newTabButtonWidth, controlsCy);
 }
 
 function drawWindowsCaptionButtons(ctx, palette, w) {
@@ -404,7 +545,7 @@ function drawWindowsCaptionButtons(ctx, palette, w) {
   }
 }
 
-function drawWindowsChrome(ctx, layout, opts) {
+function drawWindowsChrome(ctx, layout, opts, faviconImage = null) {
   const s = layout.renderScale ?? layout.scale ?? 1;
   const w = layout.renderOuterW;
   const h = layout.renderOuterH;
@@ -428,10 +569,12 @@ function drawWindowsChrome(ctx, layout, opts) {
   ctx.save();
   roundRectPath(ctx, 0, 0, w, h, radius);
   ctx.clip();
-  ctx.fillStyle = palette.titleBarBg;
-  ctx.fillRect(0, 0, w, h);
+  ctx.fillStyle = palette.tabRowBg;
+  ctx.fillRect(0, 0, w, titleBar);
+  ctx.fillStyle = palette.windowBg;
+  ctx.fillRect(0, titleBar, w, h - titleBar);
 
-  drawWindowsActiveTab(ctx, palette, opts.title);
+  drawWindowsTabRow(ctx, palette, faviconImage);
   drawWindowsCaptionButtons(ctx, palette, w);
 
   roundRectPath(ctx, 0.5, 0.5, w - 1, h - 1, radius);
@@ -511,7 +654,7 @@ function drawWireframeChrome(ctx, layout, opts) {
   ctx.textAlign = "left";
 }
 
-function drawChrome(ctx, layout, opts) {
+function drawChrome(ctx, layout, opts, assets = {}) {
   if (!isOsChrome(opts)) {
     drawViewerFrame(ctx, layout, opts);
     return;
@@ -521,7 +664,7 @@ function drawChrome(ctx, layout, opts) {
     return;
   }
   if (resolveOsStyle(opts) === OS_STYLE_WINDOWS) {
-    drawWindowsChrome(ctx, layout, opts);
+    drawWindowsChrome(ctx, layout, opts, assets.favicon);
     return;
   }
   drawWireframeChrome(ctx, layout, opts);
@@ -532,6 +675,32 @@ function drawGridLabelOverlay(ctx, layout, opts) {
     return;
   }
   drawGridLabel(ctx, layout);
+}
+
+function loadImageFromURL(src) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => resolve(img);
+    img.onerror = () => reject(new Error(`failed to load image: ${src}`));
+    img.src = src;
+  });
+}
+
+let faviconImagePromise;
+async function loadFaviconImage() {
+  if (!faviconImagePromise) {
+    faviconImagePromise = (async () => {
+      for (const src of ["/assets/favicon.png", "/assets/favicon.svg"]) {
+        try {
+          return await loadImageFromURL(src);
+        } catch {
+          // try next asset
+        }
+      }
+      return null;
+    })();
+  }
+  return faviconImagePromise;
 }
 
 function loadImageFromFile(file) {
@@ -709,7 +878,9 @@ export async function composeExportPNG({ screen, replayBytes, opts, backgroundFi
     out.height = renderLayout.renderOuterH;
     const ctx = out.getContext("2d");
     drawBackground(ctx, renderLayout, options, bgImage);
-    drawChrome(ctx, renderLayout, options);
+    const chromeAssets =
+      resolveOsStyle(options) === OS_STYLE_WINDOWS ? { favicon: await loadFaviconImage() } : {};
+    drawChrome(ctx, renderLayout, options, chromeAssets);
     if (termCanvas) {
       drawExportTerminal(ctx, { ...measured, width: termW, height: termH }, renderLayout);
     } else {
@@ -778,10 +949,35 @@ export async function composeExportSVG({ screen, opts, viewerMetrics }) {
     const titleBar = layout.titleBar;
     const btnW = palette.captionButtonWidth;
     const icon = 4 * palette.iconScale;
-    const text = options.title || "Terminal";
+    const appName = palette.appName;
+    const tabX = palette.tabRowMarginX;
+    const tabY = palette.tabRowMarginTop;
+    const tabW = palette.tabWidth;
+    const tabH = titleBar - palette.tabRowMarginTop;
+    const tabR = palette.tabTopRadius;
+    const iconX = tabX + palette.tabPaddingX;
+    const iconY = tabY + (tabH - palette.tabIconSize) / 2;
+    const textX = iconX + palette.tabIconSize + palette.tabIconGap;
+    const closeCx = tabX + tabW - palette.tabPaddingX - palette.tabCloseButtonWidth / 2;
+    const closeIcon = 3.5 * palette.iconScale;
+    const controlsCy = tabY + tabH / 2;
+    const controlsX = tabX + tabW;
+    const newTabCx = controlsX + palette.newTabButtonWidth / 2;
+    const menuCx = controlsX + palette.newTabButtonWidth + palette.tabMenuButtonWidth / 2;
+    const plus = 5 * palette.iconScale;
+    const chev = 3.5 * palette.iconScale;
     svg += `<rect x="0" y="0" width="${layout.renderOuterW}" height="${layout.renderOuterH}" rx="${radius}" fill="${palette.windowBg}" stroke="${palette.border}" stroke-width="0.5"/>`;
-    svg += `<text x="${palette.tabInsetX + palette.tabPaddingX}" y="${titleBar / 2}" dominant-baseline="middle" fill="${palette.tabText}" font-family=&quot;Segoe UI Variable&quot;,&quot;Segoe UI&quot;,system-ui,sans-serif font-size="${palette.titleFontSize}" font-weight="400">${escapeXml(text)}</text>`;
-    svg += `<rect x="0" y="${titleBar - 1}" width="${layout.renderOuterW}" height="1" fill="${palette.tabRowSeparator}"/>`;
+    svg += `<rect x="0" y="0" width="${layout.renderOuterW}" height="${titleBar}" fill="${palette.tabRowBg}"/>`;
+    svg += `<defs><clipPath id="wt-tab-clip"><path d="${windowsTabTopPathSvg(tabX, tabY, tabW, tabH, tabR)}"/></clipPath></defs>`;
+    svg += `<path d="${windowsTabTopPathSvg(tabX, tabY, tabW, tabH, tabR)}" fill="${palette.tabActiveBg}"/>`;
+    svg += `<rect x="${tabX}" y="${tabY}" width="${tabW}" height="${Math.max(1, palette.iconScale)}" fill="${palette.tabActiveTopAccent}" clip-path="url(#wt-tab-clip)"/>`;
+    svg += tuileFaviconSvg(iconX, iconY, palette.tabIconSize);
+    svg += `<text x="${textX}" y="${tabY + tabH / 2}" dominant-baseline="middle" fill="${palette.tabText}" font-family=&quot;Segoe UI Variable&quot;,&quot;Segoe UI&quot;,system-ui,sans-serif font-size="${palette.titleFontSize}" font-weight="400">${escapeXml(appName)}</text>`;
+    svg += `<line x1="${closeCx - closeIcon}" y1="${tabY + tabH / 2 - closeIcon}" x2="${closeCx + closeIcon}" y2="${tabY + tabH / 2 + closeIcon}" stroke="${palette.captionColor}" stroke-width="${Math.max(1, palette.iconScale * 0.75)}" stroke-linecap="round"/>`;
+    svg += `<line x1="${closeCx + closeIcon}" y1="${tabY + tabH / 2 - closeIcon}" x2="${closeCx - closeIcon}" y2="${tabY + tabH / 2 + closeIcon}" stroke="${palette.captionColor}" stroke-width="${Math.max(1, palette.iconScale * 0.75)}" stroke-linecap="round"/>`;
+    svg += `<line x1="${newTabCx - plus}" y1="${controlsCy}" x2="${newTabCx + plus}" y2="${controlsCy}" stroke="${palette.captionColor}" stroke-width="${Math.max(1, palette.iconScale * 0.75)}" stroke-linecap="round"/>`;
+    svg += `<line x1="${newTabCx}" y1="${controlsCy - plus}" x2="${newTabCx}" y2="${controlsCy + plus}" stroke="${palette.captionColor}" stroke-width="${Math.max(1, palette.iconScale * 0.75)}" stroke-linecap="round"/>`;
+    svg += `<polyline points="${menuCx - chev},${controlsCy - chev * 0.35} ${menuCx},${controlsCy + chev * 0.65} ${menuCx + chev},${controlsCy - chev * 0.35}" fill="none" stroke="${palette.captionColor}" stroke-width="${Math.max(1, palette.iconScale * 0.75)}" stroke-linecap="round" stroke-linejoin="round"/>`;
     const kinds = ["minimize", "maximize", "close"];
     for (let i = 0; i < kinds.length; i++) {
       const x = layout.renderOuterW - (kinds.length - i) * btnW;

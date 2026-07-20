@@ -177,27 +177,119 @@ func drawWindowsChrome(img *image.RGBA, layout Layout, opts Options) {
 	}
 
 	fillRoundRect(img, 0, 0, w, h, radius, windowBg)
-	drawWindowsActiveTab(img, layout, opts)
+	drawWindowsTabRow(img, layout, opts)
 	drawWindowsCaptionButtons(img, layout, captionColor)
 	strokeRoundRect(img, 0, 0, w, h, radius, border, 1)
 }
 
-func drawWindowsActiveTab(img *image.RGBA, layout Layout, opts Options) {
+func drawWindowsTabRow(img *image.RGBA, layout Layout, opts Options) {
 	titleBar := layout.TitleBar
 	light := opts.Theme == "light"
 	tabText := color.RGBA{204, 204, 204, 255}
-	separator := color.RGBA{51, 51, 51, 255}
+	captionColor := color.RGBA{255, 255, 255, 230}
 	if light {
 		tabText = color.RGBA{26, 26, 26, 255}
-		separator = color.RGBA{229, 229, 229, 255}
+		captionColor = color.RGBA{0, 0, 0, 230}
 	}
-	fontSize := 12 * layout.RenderScale
+	scale := layout.RenderScale
+	tabX := WindowsTabRowMarginX() * scale
+	tabY := WindowsTabRowMarginTop() * scale
+	tabPad := WindowsTabPaddingX() * scale
+	tabW := WindowsTabWidth() * scale
+	tabH := titleBar - WindowsTabRowMarginTop()*scale
+	tabR := WindowsTabTopRadius() * scale
+	iconSize := WindowsTabIconSize() * scale
+	iconGap := WindowsTabIconGap() * scale
+	fontSize := 12 * scale
+	appName := WindowsAppName()
+	tabRowBg := WindowsTabRowBg(opts)
+	tabActiveBg := WindowsWindowBg(opts)
+	tabAccent := WindowsTabActiveTopAccent(opts)
+	fillRect(img, 0, 0, layout.RenderOuterW, titleBar, tabRowBg)
+	fillRoundRectTopOnly(img, tabX, tabY, tabW, tabH, tabR, tabActiveBg)
+	fillRect(img, tabX+tabR, tabY, tabW-2*tabR, maxInt(1, scale), tabAccent)
+	iconX := tabX + tabPad
+	iconY := tabY + (tabH-iconSize)/2
+	drawTuileFavicon(img, iconX, iconY, iconSize)
 	face, err := monoFace(float64(fontSize))
 	if err == nil {
-		x := (WindowsTabInsetX() + WindowsTabPaddingX()) * layout.RenderScale
-		drawText(img, face, opts.Title, x, titleBar/2+fontSize*2/5, tabText, false)
+		drawText(img, face, appName, iconX+iconSize+iconGap, tabY+tabH/2+fontSize*2/5, tabText, false)
 	}
-	fillRect(img, 0, titleBar-1, layout.RenderOuterW, 1, separator)
+	drawWindowsTabCloseButton(img, tabX, tabY, tabW, tabH, captionColor, scale)
+	controlsCy := tabY + tabH/2
+	controlsX := tabX + tabW
+	drawWindowsNewTabButton(img, controlsX, controlsCy, captionColor, scale)
+	drawWindowsTabMenuChevron(img, controlsX+WindowsNewTabButtonWidth()*scale, controlsCy, captionColor, scale)
+}
+
+func drawWindowsTabCloseButton(img *image.RGBA, tabX, tabY, tabW, tabH int, icon color.RGBA, scale int) {
+	closeW := WindowsTabCloseButtonWidth() * scale
+	pad := WindowsTabPaddingX() * scale
+	cx := tabX + tabW - pad - closeW/2
+	cy := tabY + tabH/2
+	iconSize := int(3.5*float64(scale) + 0.5)
+	thickness := scale
+	if thickness < 1 {
+		thickness = 1
+	}
+	strokeLine(img, cx-iconSize, cy-iconSize, cx+iconSize, cy+iconSize, icon, thickness)
+	strokeLine(img, cx+iconSize, cy-iconSize, cx-iconSize, cy+iconSize, icon, thickness)
+}
+
+func drawWindowsTabMenuChevron(img *image.RGBA, x, cy int, icon color.RGBA, scale int) {
+	btnW := WindowsTabMenuButtonWidth() * scale
+	cx := x + btnW/2
+	half := int(3.5*float64(scale) + 0.5)
+	thickness := scale
+	if thickness < 1 {
+		thickness = 1
+	}
+	strokeLine(img, cx-half, cy-int(float64(half)*0.35), cx, cy+int(float64(half)*0.65), icon, thickness)
+	strokeLine(img, cx, cy+int(float64(half)*0.65), cx+half, cy-int(float64(half)*0.35), icon, thickness)
+}
+
+func drawTuileFavicon(img *image.RGBA, x, y, size int) {
+	u := float64(size) / 32.0
+	bg := color.RGBA{12, 12, 14, 255}
+	tile := color.RGBA{232, 165, 75, 255}
+	fillRoundRect(img, x, y, size, size, int(6*u+0.5), bg)
+	squares := []struct {
+		x, y int
+		o    uint8
+	}{
+		{6, 6, 255},
+		{17, 6, 209},
+		{6, 17, 209},
+		{17, 17, 255},
+	}
+	for _, sq := range squares {
+		c := tile
+		c.A = sq.o
+		sx := x + int(float64(sq.x)*u+0.5)
+		sy := y + int(float64(sq.y)*u+0.5)
+		sw := int(9*u + 0.5)
+		fillRoundRect(img, sx, sy, sw, sw, int(1.5*u+0.5), c)
+	}
+}
+
+func drawWindowsNewTabButton(img *image.RGBA, x, cy int, icon color.RGBA, scale int) {
+	btnW := WindowsNewTabButtonWidth() * scale
+	cx := x + btnW/2
+	iconSize := 5 * scale
+	thickness := scale
+	if thickness < 1 {
+		thickness = 1
+	}
+	strokeHLine(img, cx-iconSize, cx+iconSize, cy, icon, thickness)
+	strokeVLine(img, cx, cy-iconSize, cy+iconSize, icon, thickness)
+}
+
+func strokeVLine(img *image.RGBA, x, y1, y2 int, c color.RGBA, thickness int) {
+	for t := 0; t < thickness; t++ {
+		for y := y1; y <= y2; y++ {
+			img.Set(x+t, y, c)
+		}
+	}
 }
 
 func drawWindowsCaptionButtons(img *image.RGBA, layout Layout, icon color.RGBA) {
@@ -463,6 +555,19 @@ func fillRoundRect(img *image.RGBA, x, y, w, h, r int, c color.RGBA) {
 	fillCircle(img, x+w-r, y+r, r, c)
 	fillCircle(img, x+r, y+h-r, r, c)
 	fillCircle(img, x+w-r, y+h-r, r, c)
+}
+
+func fillRoundRectTopOnly(img *image.RGBA, x, y, w, h, r int, c color.RGBA) {
+	if r > w/2 {
+		r = w / 2
+	}
+	if r > h {
+		r = h
+	}
+	fillRect(img, x, y+r, w, h-r, c)
+	fillRect(img, x+r, y, w-2*r, r, c)
+	fillCircle(img, x+r, y+r, r, c)
+	fillCircle(img, x+w-r, y+r, r, c)
 }
 
 func fillRoundRectEars(img *image.RGBA, x, y, w, h, r int, c color.RGBA) {
