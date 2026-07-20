@@ -3,6 +3,9 @@ package api_test
 import (
 	"bytes"
 	"encoding/json"
+	"image"
+	"image/color"
+	"image/png"
 	"io"
 	"mime/multipart"
 	"net/http"
@@ -68,6 +71,20 @@ func TestSessionExportMultipartBackground(t *testing.T) {
 	dir := t.TempDir()
 	id, token := createSessionViaAPI(t, srv, boot, dir)
 
+	transparent := export.DefaultOptions()
+	transparent.BackgroundMode = export.BackgroundTransparent
+	transparent.ChromePreset = export.ChromeOSWireframe
+	transparentBody, _ := json.Marshal(transparent)
+	transparentReq := httptest.NewRequest(http.MethodPost, "/v1/sessions/"+id+"/export", bytes.NewReader(transparentBody))
+	transparentReq.Header.Set("Authorization", "Bearer "+token)
+	transparentReq.Header.Set("Content-Type", "application/json")
+	transparentReq.SetPathValue("id", id)
+	transparentRec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(transparentRec, transparentReq)
+	if transparentRec.Code != http.StatusOK {
+		t.Fatalf("transparent export status = %d body=%s", transparentRec.Code, transparentRec.Body.String())
+	}
+
 	var buf bytes.Buffer
 	w := multipart.NewWriter(&buf)
 	_ = w.WriteField("chrome_preset", export.ChromeOSWireframe)
@@ -75,13 +92,7 @@ func TestSessionExportMultipartBackground(t *testing.T) {
 	_ = w.WriteField("format", export.FormatPNG)
 	_ = w.WriteField("scale", "1")
 	part, _ := w.CreateFormFile("background_image", "bg.png")
-	_, _ = io.Copy(part, bytes.NewReader([]byte{
-		0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d, 0x49, 0x48, 0x44, 0x52,
-		0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x08, 0x02, 0x00, 0x00, 0x00, 0x90, 0x77, 0x53,
-		0xde, 0x00, 0x00, 0x00, 0x0c, 0x49, 0x44, 0x41, 0x54, 0x08, 0xd7, 0x63, 0xf8, 0xcf, 0xc0, 0x00,
-		0x00, 0x00, 0x02, 0x00, 0x01, 0xe2, 0x21, 0xbc, 0x33, 0x00, 0x00, 0x00, 0x00, 0x49, 0x45, 0x4e,
-		0x44, 0xae, 0x42, 0x60, 0x82,
-	}))
+	_, _ = io.Copy(part, bytes.NewReader(customBackgroundPNG(t)))
 	_ = w.Close()
 
 	req := httptest.NewRequest(http.MethodPost, "/v1/sessions/"+id+"/export", &buf)
@@ -93,4 +104,23 @@ func TestSessionExportMultipartBackground(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("export status = %d body=%s", rec.Code, rec.Body.String())
 	}
+	if bytes.Equal(transparentRec.Body.Bytes(), rec.Body.Bytes()) {
+		t.Fatal("custom background export identical to transparent export")
+	}
+}
+
+func customBackgroundPNG(t *testing.T) []byte {
+	t.Helper()
+	img := image.NewRGBA(image.Rect(0, 0, 16, 16))
+	fill := color.RGBA{R: 220, G: 40, B: 120, A: 255}
+	for y := 0; y < 16; y++ {
+		for x := 0; x < 16; x++ {
+			img.Set(x, y, fill)
+		}
+	}
+	var buf bytes.Buffer
+	if err := png.Encode(&buf, img); err != nil {
+		t.Fatal(err)
+	}
+	return buf.Bytes()
 }

@@ -298,22 +298,24 @@ function drawViewerFrame(ctx, layout, opts) {
   const s = layout.renderScale ?? layout.scale;
   const w = layout.frameW;
   const h = layout.frameH;
-  const transparent = opts?.background_mode === BACKGROUND_TRANSPARENT;
+  const solidFrameFill = opts?.background_mode === BACKGROUND_PRESET;
 
-  if (!transparent) {
+  if (solidFrameFill) {
     const termBg = layout.termBg || TERM_BG;
     fillFrameCornerEars(ctx, w, h, layout.radius, termBg);
   }
 
   ctx.save();
-  if (!transparent) {
+  if (solidFrameFill) {
     ctx.shadowColor = "rgba(0, 0, 0, 0.28)";
     ctx.shadowBlur = 32 * s;
     ctx.shadowOffsetY = 12 * s;
   }
   roundRectPath(ctx, 0, 0, w, h, layout.radius);
-  ctx.fillStyle = layout.frameBg;
-  ctx.fill();
+  if (solidFrameFill) {
+    ctx.fillStyle = layout.frameBg;
+    ctx.fill();
+  }
   ctx.shadowColor = "transparent";
 
   roundRectPath(ctx, 0.5, 0.5, w - 1, h - 1, layout.radius);
@@ -631,9 +633,9 @@ function drawWireframeChrome(ctx, layout, opts) {
   const s = layout.scale;
   const inset = layout.pad;
   const { w, h } = canvasSize(layout);
-  const transparent = opts?.background_mode === BACKGROUND_TRANSPARENT;
+  const solidFrameFill = opts?.background_mode === BACKGROUND_PRESET;
 
-  if (!transparent) {
+  if (solidFrameFill) {
     ctx.fillStyle = FRAME_FILL;
     ctx.fillRect(0, 0, w, h);
   }
@@ -996,7 +998,7 @@ export async function composeExportSVG({ screen, opts, viewerMetrics }) {
     const s = layout.renderScale;
     const stroke = STROKE;
     const dash = `${5 * s} ${4 * s}`;
-    if (options.background_mode !== BACKGROUND_TRANSPARENT) {
+    if (options.background_mode === BACKGROUND_PRESET) {
       svg += `<rect width="${layout.renderOuterW}" height="${layout.renderOuterH}" fill="${FRAME_FILL}" stroke="${stroke}" stroke-width="${2 * s}" stroke-dasharray="${dash}"/>`;
     } else {
       svg += `<rect width="${layout.renderOuterW}" height="${layout.renderOuterH}" fill="none" stroke="${stroke}" stroke-width="${2 * s}" stroke-dasharray="${dash}"/>`;
@@ -1013,10 +1015,10 @@ export async function composeExportSVG({ screen, opts, viewerMetrics }) {
     }
     svg += `<text x="${layout.renderOuterW / 2}" y="${layout.pad + layout.title * 0.62}" text-anchor="middle" fill="#e4e4e7" font-family="system-ui" font-size="${12 * s}" font-weight="600">${escapeXml(options.title || "tuile")}</text>`;
   } else {
-    if (options.background_mode !== BACKGROUND_TRANSPARENT) {
+    if (options.background_mode === BACKGROUND_PRESET) {
       svg += `<rect x="0" y="0" width="${layout.frameW}" height="${layout.frameH}" fill="${layout.termBg || TERM_BG}"/>`;
     }
-    svg += `<rect x="0" y="0" width="${layout.frameW}" height="${layout.frameH}" rx="${layout.radius}" fill="${layout.frameBg}" stroke="${layout.border}" stroke-width="1"/>`;
+    svg += `<rect x="0" y="0" width="${layout.frameW}" height="${layout.frameH}" rx="${layout.radius}" fill="${options.background_mode === BACKGROUND_PRESET ? layout.frameBg : "none"}" stroke="${layout.border}" stroke-width="1"/>`;
   }
 
   svg += `<g transform="translate(${layout.termX},${layout.termY})"><rect width="${layout.termW}" height="${layout.termH}" fill="${TERM_BG}"/>`;

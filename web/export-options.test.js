@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
 import {
+  BACKGROUND_CUSTOM,
+  BACKGROUND_PRESET,
   BACKGROUND_PRESETS,
   CHROME_MINIMAL,
   CHROME_OS,
@@ -120,6 +122,28 @@ describe("export-options", () => {
 
   it("background presets include slate", () => {
     assert.ok(BACKGROUND_PRESETS.slate);
+  });
+
+  it("accepts custom background mode", () => {
+    const opts = validateExportOptions({
+      ...defaultExportOptions(),
+      background_mode: BACKGROUND_CUSTOM,
+    });
+    assert.equal(opts.background_mode, BACKGROUND_CUSTOM);
+  });
+
+  it("viewer frame metrics use terminal bg for custom background", () => {
+    const custom = viewerFrameMetrics(1, {
+      ...defaultExportOptions(),
+      background_mode: BACKGROUND_CUSTOM,
+    });
+    const preset = viewerFrameMetrics(1, {
+      ...defaultExportOptions(),
+      background_mode: BACKGROUND_PRESET,
+      background_preset: "slate",
+    });
+    assert.equal(custom.frameBg, custom.termBg);
+    assert.notEqual(custom.frameBg, preset.frameBg);
   });
 
   it("exportFilename uses title and sanitizes unsafe chars", () => {

@@ -29,7 +29,9 @@ func RenderPNGWithBackground(snap term.ScreenSnapshot, opts Options, custom io.R
 	}
 	layout := ComputeLayout(snap, opts)
 	img := image.NewRGBA(image.Rect(0, 0, layout.RenderOuterW, layout.RenderOuterH))
-	drawBackground(img, layout, opts, custom)
+	if err := drawBackground(img, layout, opts, custom); err != nil {
+		return nil, err
+	}
 	drawChrome(img, layout, opts)
 	if err := drawTerminal(img, snap, layout, opts); err != nil {
 		return nil, err
@@ -45,20 +47,20 @@ func RenderPNGWithBackground(snap term.ScreenSnapshot, opts Options, custom io.R
 	return buf.Bytes(), nil
 }
 
-func drawBackground(img *image.RGBA, layout Layout, opts Options, custom io.Reader) {
+func drawBackground(img *image.RGBA, layout Layout, opts Options, custom io.Reader) error {
 	w, h := layout.RenderOuterW, layout.RenderOuterH
 	switch opts.BackgroundMode {
 	case BackgroundTransparent:
-		return
+		return nil
 	case BackgroundPreset:
 		spec, ok := BackgroundPresets[opts.BackgroundPreset]
 		if !ok {
-			return
+			return nil
 		}
 		if spec.Kind == "solid" {
 			c := parseColor(spec.Color, false).(color.RGBA)
 			fillRect(img, 0, 0, w, h, c)
-			return
+			return nil
 		}
 		start := parseColor(spec.Start, false).(color.RGBA)
 		end := parseColor(spec.End, false).(color.RGBA)
@@ -69,17 +71,21 @@ func drawBackground(img *image.RGBA, layout Layout, opts Options, custom io.Read
 				img.Set(x, y, c)
 			}
 		}
+		return nil
 	case BackgroundCustom:
 		if custom == nil {
-			return
+			return fmt.Errorf("background_image required")
 		}
 		bg, _, err := image.Decode(custom)
 		if err != nil {
-			return
+			return fmt.Errorf("decode background image: %w", err)
 		}
-		dst := image.NewRGBA(image.Rect(0, 0, w, h))
-		draw.Draw(dst, dst.Bounds(), bg, bg.Bounds().Min, imagedraw.Over)
-		draw.Draw(img, img.Bounds(), dst, image.Point{}, imagedraw.Over)
+		scaled := image.NewRGBA(image.Rect(0, 0, w, h))
+		draw.ApproxBiLinear.Scale(scaled, scaled.Bounds(), bg, bg.Bounds(), draw.Over, nil)
+		imagedraw.Draw(img, img.Bounds(), scaled, image.Point{}, imagedraw.Src)
+		return nil
+	default:
+		return nil
 	}
 }
 
@@ -106,10 +112,12 @@ func drawGridLabelOverlay(img *image.RGBA, layout Layout, opts Options) {
 }
 
 func drawWireframeChrome(img *image.RGBA, layout Layout, opts Options) {
-	frame := color.RGBA{22, 22, 26, 255}
 	border := color.RGBA{139, 139, 158, 255}
 	w, h := layout.RenderOuterW, layout.RenderOuterH
-	fillRect(img, 0, 0, w, h, frame)
+	if opts.BackgroundMode == BackgroundPreset {
+		frame := color.RGBA{22, 22, 26, 255}
+		fillRect(img, 0, 0, w, h, frame)
+	}
 	inset := layout.ChromePad
 	strokeRect(img, inset/2, inset/2, w-inset, h-inset, border, 2*layout.RenderScale)
 	strokeRect(img, inset, inset, w-inset*2, layout.TitleBar, border, 2*layout.RenderScale)
@@ -368,9 +376,11 @@ func drawViewerFrame(img *image.RGBA, layout Layout, opts Options) {
 	accent := ThemeChromeAccentFor(opts)
 	frameBg := parseColor(accent.FrameBg, false).(color.RGBA)
 	border := parseColor(accent.Border, false).(color.RGBA)
-	termBG := color.RGBA{10, 10, 10, 255}
-	fillRoundRectEars(img, 0, 0, layout.FrameW, layout.FrameH, layout.FrameRadius, termBG)
-	fillRoundRect(img, 0, 0, layout.FrameW, layout.FrameH, layout.FrameRadius, frameBg)
+	if opts.BackgroundMode == BackgroundPreset {
+		termBG := color.RGBA{10, 10, 10, 255}
+		fillRoundRectEars(img, 0, 0, layout.FrameW, layout.FrameH, layout.FrameRadius, termBG)
+		fillRoundRect(img, 0, 0, layout.FrameW, layout.FrameH, layout.FrameRadius, frameBg)
+	}
 	strokeRoundRect(img, 0, 0, layout.FrameW, layout.FrameH, layout.FrameRadius, border, 1)
 }
 

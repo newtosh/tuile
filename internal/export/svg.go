@@ -58,8 +58,12 @@ func writeSVGChrome(buf *bytes.Buffer, layout Layout, opts Options) {
 		return
 	}
 	accent := ThemeChromeAccentFor(opts)
-	fmt.Fprintf(buf, `<rect x="0" y="0" width="%d" height="%d" fill="#0a0a0a"/>`, layout.FrameW, layout.FrameH)
-	fmt.Fprintf(buf, `<rect x="0" y="0" width="%d" height="%d" rx="%d" fill="%s" stroke="%s" stroke-width="1"/>`, layout.FrameW, layout.FrameH, layout.FrameRadius, html.EscapeString(accent.FrameBg), html.EscapeString(accent.Border))
+	if opts.BackgroundMode == BackgroundPreset {
+		fmt.Fprintf(buf, `<rect x="0" y="0" width="%d" height="%d" fill="#0a0a0a"/>`, layout.FrameW, layout.FrameH)
+		fmt.Fprintf(buf, `<rect x="0" y="0" width="%d" height="%d" rx="%d" fill="%s" stroke="%s" stroke-width="1"/>`, layout.FrameW, layout.FrameH, layout.FrameRadius, html.EscapeString(accent.FrameBg), html.EscapeString(accent.Border))
+		return
+	}
+	fmt.Fprintf(buf, `<rect x="0" y="0" width="%d" height="%d" rx="%d" fill="none" stroke="%s" stroke-width="1"/>`, layout.FrameW, layout.FrameH, layout.FrameRadius, html.EscapeString(accent.Border))
 }
 
 func writeSVGGridLabel(buf *bytes.Buffer, layout Layout, opts Options) {
@@ -83,7 +87,10 @@ func writeSVGGridLabel(buf *bytes.Buffer, layout Layout, opts Options) {
 
 func writeSVGWireframeChrome(buf *bytes.Buffer, layout Layout, opts Options) {
 	stroke := "#8b8b9e"
-	fill := "#16161a"
+	fill := "none"
+	if opts.BackgroundMode == BackgroundPreset {
+		fill = "#16161a"
+	}
 	fmt.Fprintf(buf, `<rect width="%d" height="%d" fill="%s" stroke="%s" stroke-width="%d" stroke-dasharray="5 4"/>`, layout.RenderOuterW, layout.RenderOuterH, fill, stroke, 2*layout.RenderScale)
 	fmt.Fprintf(buf, `<line x1="%d" y1="%d" x2="%d" y2="%d" stroke="%s" stroke-width="%d" stroke-dasharray="5 4"/>`, layout.ChromePad, layout.ChromePad+layout.TitleBar, layout.RenderOuterW-layout.ChromePad, layout.ChromePad+layout.TitleBar, stroke, 2*layout.RenderScale)
 	dot := 10 * layout.RenderScale

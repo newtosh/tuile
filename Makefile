@@ -1,4 +1,4 @@
-.PHONY: test build build-mcp test-integration test-browser test-web vet race viewer-dev
+.PHONY: test build build-mcp test-integration test-browser test-web test-export-background vet race viewer-dev
 
 build:
 	go build -o bin/tuile ./cmd/tuile
@@ -15,6 +15,10 @@ test:
 
 test-web:
 	cd web && node --test *.test.js
+
+test-export-background:
+	@chmod +x scripts/verify-export-custom-background.sh
+	@./scripts/verify-export-custom-background.sh
 
 vet:
 	go vet ./...
