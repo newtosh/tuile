@@ -7,9 +7,16 @@
       (function () {
         var key = "tuile_app_appearance";
         var mode = sessionStorage.getItem(key) || localStorage.getItem(key);
-        if (mode === "light" || mode === "dark") {
-          document.documentElement.dataset.appearance = mode;
+        function resolveAppearance(preference) {
+          if (preference === "auto") {
+            return window.matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark";
+          }
+          if (preference === "light" || preference === "dark") {
+            return preference;
+          }
+          return "dark";
         }
+        document.documentElement.dataset.appearance = resolveAppearance(mode);
       })();
     </script>
     <title>Tuile — Session Viewer</title>
@@ -53,6 +60,7 @@
             <div class="menu-field">
               <label class="menu-label" for="app-appearance">App appearance</label>
               <select id="app-appearance">
+                <option value="auto">Auto</option>
                 <option value="dark" selected>Dark</option>
                 <option value="light">Light</option>
               </select>

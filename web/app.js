@@ -12,6 +12,11 @@ import {
   shouldSuggestAppearanceSwitch,
 } from "./terminal-appearance-hint.js";
 import {
+  normalizeAppAppearancePreference,
+  resolveAppAppearance,
+  systemAppearance,
+} from "./app-appearance.js";
+import {
   ACK_STORAGE_KEY,
   loadAckMap,
   pruneClientSessionState,
@@ -136,25 +141,26 @@ observeBaseFont = fontSizeMode === "auto" ? DEFAULT_FONT_SIZE : parseInt(fontSiz
 sessionSortSelect.value = loadSessionSort();
 sessionInactiveMins.value = String(getInactiveMins());
 
-function loadAppAppearance() {
+function loadAppAppearancePreference() {
   const stored =
     sessionStorage.getItem(APP_APPEARANCE_KEY) ?? localStorage.getItem(APP_APPEARANCE_KEY);
-  return stored === "light" ? "light" : "dark";
+  return normalizeAppAppearancePreference(stored);
 }
 
-function persistAppAppearance(mode) {
-  sessionStorage.setItem(APP_APPEARANCE_KEY, mode);
-  localStorage.setItem(APP_APPEARANCE_KEY, mode);
+function persistAppAppearance(preference) {
+  sessionStorage.setItem(APP_APPEARANCE_KEY, preference);
+  localStorage.setItem(APP_APPEARANCE_KEY, preference);
 }
 
-function applyAppAppearance(mode) {
-  document.documentElement.dataset.appearance = mode;
+function applyAppAppearance(preference) {
+  const resolved = resolveAppAppearance(preference);
+  document.documentElement.dataset.appearance = resolved;
   if (appAppearanceSelect) {
-    appAppearanceSelect.value = mode;
+    appAppearanceSelect.value = preference;
   }
 }
 
-function loadTerminalThemeId(appearance = loadAppAppearance()) {
+function loadTerminalThemeId(appearance = currentAppAppearance()) {
   const stored = localStorage.getItem(TERMINAL_THEME_KEY);
   if (!stored) {
     return defaultTerminalThemeIdForAppearance(appearance);
@@ -352,15 +358,31 @@ function applyTerminalTheme(themeId) {
   }
 }
 
-const initialAppearance = loadAppAppearance();
-applyAppAppearance(initialAppearance);
-const initialThemeId = loadTerminalThemeId(initialAppearance);
-populateTerminalThemeSelect(initialThemeId, initialAppearance);
+const initialPreference = loadAppAppearancePreference();
+applyAppAppearance(initialPreference);
+const initialThemeId = loadTerminalThemeId(currentAppAppearance());
+populateTerminalThemeSelect(initialThemeId, currentAppAppearance());
 const initialFontFamily = loadFontFamily();
 if (fontSelect) {
   fontSelect.value = initialFontFamily;
 }
 syncTerminalStageAppearance(getTerminalTheme(initialThemeId).appearance);
+
+const appearanceMedia = window.matchMedia("(prefers-color-scheme: light)");
+function syncAutoAppAppearance() {
+  if (loadAppAppearancePreference() !== "auto") {
+    return;
+  }
+  const resolved = systemAppearance();
+  if (document.documentElement.dataset.appearance === resolved) {
+    return;
+  }
+  document.documentElement.dataset.appearance = resolved;
+  reconcileTerminalThemeForAppearance(resolved);
+  hideAppearanceHint();
+  scheduleAppearanceHintCheck();
+}
+appearanceMedia.addEventListener("change", syncAutoAppAppearance);
 
 uiStatus.subscribe((text) => {
   statusMessage.textContent = text;
@@ -1885,10 +1907,10 @@ fontSelect.addEventListener("change", () => {
 });
 
 appAppearanceSelect?.addEventListener("change", () => {
-  const mode = appAppearanceSelect.value === "light" ? "light" : "dark";
-  applyAppAppearance(mode);
-  persistAppAppearance(mode);
-  reconcileTerminalThemeForAppearance(mode);
+  const preference = appAppearanceSelect.value;
+  applyAppAppearance(preference);
+  persistAppAppearance(preference);
+  reconcileTerminalThemeForAppearance(currentAppAppearance());
   hideAppearanceHint();
 });
 
