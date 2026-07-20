@@ -26,7 +26,7 @@ jobs:
             goarch: arm64
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
       - name: Build binaries
@@ -39,7 +39,7 @@ jobs:
           ldflags="-s -w -X github.com/newtosh/tuile/internal/version.Version=${VERSION}"
           go build -ldflags="${ldflags}" -o "tuile-${{ matrix.goos }}-${{ matrix.goarch }}" ./cmd/tuile
           go build -ldflags="${ldflags}" -o "tuile-mcp-${{ matrix.goos }}-${{ matrix.goarch }}" ./cmd/tuile-mcp
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: tuile-${{ matrix.goos }}-${{ matrix.goarch }}
           path: |
@@ -54,7 +54,7 @@ jobs:
         with:
           path: dist
           merge-multiple: true
-      - uses: softprops/action-gh-release@v2
+      - uses: softprops/action-gh-release@v3
         with:
           files: dist/*
           generate_release_notes: true

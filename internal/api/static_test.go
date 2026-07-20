@@ -67,6 +67,19 @@ func TestAssetsServed(t *testing.T) {
 	}
 }
 
+func TestBundledFontServed(t *testing.T) {
+	srv, _ := newTestServer(t, nil)
+	req := httptest.NewRequest(http.MethodGet, "/assets/fonts/JetBrainsMonoNerdFont-Regular.woff2", nil)
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("font status = %d", rec.Code)
+	}
+	if ct := rec.Header().Get("Content-Type"); !strings.Contains(ct, "font") && ct != "application/octet-stream" {
+		t.Fatalf("unexpected content-type %q", ct)
+	}
+}
+
 func TestFaviconServed(t *testing.T) {
 	srv, _ := newTestServer(t, nil)
 	for _, path := range []string{"/assets/favicon.svg", "/assets/favicon.ico", "/assets/favicon.png"} {

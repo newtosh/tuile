@@ -61,6 +61,8 @@ flowchart LR
 
 The built-in UI at `http://127.0.0.1:7710/` lists active sessions, tails any PTY in observe mode, and lets you switch between agents without opening another terminal. Enter your bootstrap secret once (saved in the browser) to discover sessions created via the API or CLI.
 
+Viewer **fonts**, **terminal color themes**, and **light/dark chrome** are independent settings — see [docs/viewer-themes.md](docs/viewer-themes.md).
+
 ![Codex session in the Tuile browser viewer](docs/images/viewer-codex-login.png)
 
 *Codex OpenAI sign-in with other agent sessions in the sidebar — switch between CLIs without attaching a second terminal.*
@@ -75,7 +77,7 @@ The built-in UI at `http://127.0.0.1:7710/` lists active sessions, tails any PTY
 
 ![Tuile settings menu](docs/images/viewer-settings.png)
 
-*Settings panel (gear icon, top right): pick **font** and **text size** for the terminal; toggle **enhanced rendering** (WebGL) for sharper Unicode and box-drawing; use **Take over** to send keystrokes from the browser, **Release** to hand control back to the agent, and **Reconnect** if the WebSocket drops. Sessions default to 120×36 — non-default sizes show as “resized” in the sidebar.*
+*Settings panel (gear icon, top right): **App appearance** (Auto/Dark/Light UI chrome), **Terminal theme** (ANSI palette inside the pane), **Font** (bundled Nerd Fonts for statusline icons), and **Text size**; toggle **enhanced rendering** (WebGL) for sharper Unicode and box-drawing; use **Take over** to send keystrokes from the browser, **Release** to hand control back to the agent, and **Reconnect** if the WebSocket drops. Sessions default to 120×36 — non-default sizes show as “resized” in the sidebar.*
 
 **Export screenshots** — use the image icon (next to settings) to open the export panel: pick wireframe chrome, background (transparent, preset gradient/solid, or custom image), scale (1x/2x), and PNG or SVG. The same options are available via `POST /v1/sessions/{id}/export`. When committing images to docs, follow [CONTRIBUTING.md](CONTRIBUTING.md) hygiene (no personal names or account-specific strings).
 
