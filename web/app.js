@@ -1,6 +1,17 @@
 import { mountIcon } from "./icons.js";
 import { sessions as $sessions, activeSessionId as $activeSessionId, uiStatus, uiBadge } from "./state.js";
 import {
+  defaultTerminalThemeIdForAppearance,
+  getTerminalTheme,
+  listTerminalThemesForAppearance,
+  resolveTerminalThemeId,
+} from "./terminal-themes.js";
+import {
+  analyzeTerminalBuffer,
+  appearanceHintCopy,
+  shouldSuggestAppearanceSwitch,
+} from "./terminal-appearance-hint.js";
+import {
   ACK_STORAGE_KEY,
   loadAckMap,
   pruneClientSessionState,
@@ -42,6 +53,8 @@ const releaseBtn = document.getElementById("release");
 const reconnectBtn = document.getElementById("reconnect");
 const fontSelect = document.getElementById("font-family");
 const fontSizeSelect = document.getElementById("font-size");
+const appAppearanceSelect = document.getElementById("app-appearance");
+const terminalThemeSelect = document.getElementById("terminal-theme");
 const webglToggle = document.getElementById("webgl-renderer");
 const settingsToggle = document.getElementById("settings-toggle");
 const settingsMenu = document.getElementById("settings-menu");
@@ -60,6 +73,11 @@ const sessionInactiveMins = document.getElementById("session-inactive-mins");
 const refreshSessionsBtn = document.getElementById("refresh-sessions");
 const bootstrapForm = document.getElementById("bootstrap-form");
 const bootstrapInput = document.getElementById("bootstrap-secret");
+const appearanceHint = document.getElementById("appearance-hint");
+const appearanceHintIcon = document.getElementById("appearance-hint-icon");
+const appearanceHintText = document.getElementById("appearance-hint-text");
+const appearanceHintApply = document.getElementById("appearance-hint-apply");
+const appearanceHintDismiss = document.getElementById("appearance-hint-dismiss");
 
 let bootstrapSecret = localStorage.getItem(BOOTSTRAP_KEY) || "";
 let sessionId = params.get("session");
@@ -95,6 +113,11 @@ const ZOOM_MAX = 1.5;
 const ZOOM_STEP = 0.05;
 const WEBGL_KEY = "tuile_webgl";
 const LEGACY_LIGATURES_KEY = "tuile_ligatures";
+const APP_APPEARANCE_KEY = "tuile_app_appearance";
+const TERMINAL_THEME_KEY = "tuile_terminal_theme";
+const FONT_FAMILY_KEY = "tuile_font_family";
+const APPEARANCE_HINT_DISMISS_PREFIX = "tuile_appearance_hint_dismiss";
+const DEFAULT_FONT_FAMILY = "'JetBrainsMono Nerd Font', monospace";
 let observeZoom = clampZoom(parseFloat(localStorage.getItem(ZOOM_KEY)) || 1);
 let fontSizeMode = localStorage.getItem(FONT_SIZE_KEY) || "20";
 
@@ -112,6 +135,232 @@ observeBaseFont = fontSizeMode === "auto" ? DEFAULT_FONT_SIZE : parseInt(fontSiz
 
 sessionSortSelect.value = loadSessionSort();
 sessionInactiveMins.value = String(getInactiveMins());
+
+function loadAppAppearance() {
+  const stored =
+    sessionStorage.getItem(APP_APPEARANCE_KEY) ?? localStorage.getItem(APP_APPEARANCE_KEY);
+  return stored === "light" ? "light" : "dark";
+}
+
+function persistAppAppearance(mode) {
+  sessionStorage.setItem(APP_APPEARANCE_KEY, mode);
+  localStorage.setItem(APP_APPEARANCE_KEY, mode);
+}
+
+function applyAppAppearance(mode) {
+  document.documentElement.dataset.appearance = mode;
+  if (appAppearanceSelect) {
+    appAppearanceSelect.value = mode;
+  }
+}
+
+function loadTerminalThemeId(appearance = loadAppAppearance()) {
+  const stored = localStorage.getItem(TERMINAL_THEME_KEY);
+  if (!stored) {
+    return defaultTerminalThemeIdForAppearance(appearance);
+  }
+  return resolveTerminalThemeId(stored, appearance);
+}
+
+function currentAppAppearance() {
+  return document.documentElement.dataset.appearance === "light" ? "light" : "dark";
+}
+
+function populateTerminalThemeSelect(selectedId, appearance = currentAppAppearance()) {
+  if (!terminalThemeSelect) {
+    return;
+  }
+  const groups = new Map();
+  for (const entry of listTerminalThemesForAppearance(appearance)) {
+    if (!groups.has(entry.family)) {
+      groups.set(entry.family, []);
+    }
+    groups.get(entry.family).push(entry);
+  }
+  terminalThemeSelect.replaceChildren();
+  for (const [family, entries] of [...groups.entries()].sort((a, b) =>
+    a[0].localeCompare(b[0]),
+  )) {
+    const group = document.createElement("optgroup");
+    group.label = family;
+    for (const entry of entries) {
+      const option = document.createElement("option");
+      option.value = entry.id;
+      option.textContent = entry.label;
+      option.selected = entry.id === selectedId;
+      group.appendChild(option);
+    }
+    terminalThemeSelect.appendChild(group);
+  }
+}
+
+function reconcileTerminalThemeForAppearance(appearance) {
+  const themeId = resolveTerminalThemeId(
+    localStorage.getItem(TERMINAL_THEME_KEY) || defaultTerminalThemeIdForAppearance(appearance),
+    appearance,
+  );
+  populateTerminalThemeSelect(themeId, appearance);
+  applyTerminalTheme(themeId);
+  localStorage.setItem(TERMINAL_THEME_KEY, themeId);
+}
+
+const APPEARANCE_HINT_DISMISS_DELAY_MS = 2200;
+const APPEARANCE_HINT_ANIM_MS = 400;
+
+let appearanceHintSuggestion = null;
+let appearanceHintTimer = null;
+let appearanceHintDebounce = null;
+let appearanceHintHideTimer = null;
+
+function appearanceHintDismissKey(suggestion = appearanceHintSuggestion) {
+  if (!sessionId || !suggestion) {
+    return null;
+  }
+  return `${APPEARANCE_HINT_DISMISS_PREFIX}:${sessionId}:${suggestion}`;
+}
+
+function clearAppearanceHintHideTimer() {
+  clearTimeout(appearanceHintHideTimer);
+  appearanceHintHideTimer = null;
+}
+
+function hideAppearanceHint() {
+  clearAppearanceHintHideTimer();
+  appearanceHintSuggestion = null;
+  appearanceHint?.classList.remove("is-visible", "is-dismissing");
+  if (appearanceHintApply) {
+    appearanceHintApply.disabled = false;
+  }
+  if (appearanceHintDismiss) {
+    appearanceHintDismiss.disabled = false;
+  }
+  appearanceHint?.classList.add("hidden");
+}
+
+function queueAppearanceHintHide() {
+  clearAppearanceHintHideTimer();
+  appearanceHintHideTimer = setTimeout(() => {
+    appearanceHint?.classList.remove("is-visible");
+    appearanceHint?.classList.add("is-dismissing");
+    appearanceHintHideTimer = setTimeout(() => {
+      hideAppearanceHint();
+    }, APPEARANCE_HINT_ANIM_MS);
+  }, APPEARANCE_HINT_DISMISS_DELAY_MS);
+}
+
+function actionAppearanceHint() {
+  const dismissKey = appearanceHintDismissKey();
+  if (dismissKey) {
+    sessionStorage.setItem(dismissKey, "1");
+  }
+  if (appearanceHintApply) {
+    appearanceHintApply.disabled = true;
+  }
+  if (appearanceHintDismiss) {
+    appearanceHintDismiss.disabled = true;
+  }
+  queueAppearanceHintHide();
+}
+
+function showAppearanceHint(suggestion) {
+  if (!appearanceHint || !appearanceHintText || !appearanceHintApply) {
+    return;
+  }
+  const dismissKey = appearanceHintDismissKey(suggestion);
+  if (dismissKey && sessionStorage.getItem(dismissKey)) {
+    return;
+  }
+  const copy = appearanceHintCopy(suggestion);
+  appearanceHintSuggestion = suggestion;
+  appearanceHintText.textContent = copy.text;
+  appearanceHintApply.textContent = copy.action;
+  appearanceHint.classList.remove("hidden", "is-dismissing", "is-visible");
+  if (appearanceHintApply) {
+    appearanceHintApply.disabled = false;
+  }
+  if (appearanceHintDismiss) {
+    appearanceHintDismiss.disabled = false;
+  }
+  requestAnimationFrame(() => {
+    appearanceHint?.classList.add("is-visible");
+  });
+}
+
+function dismissAppearanceHint() {
+  actionAppearanceHint();
+}
+
+function maybeShowAppearanceHint() {
+  if (!sessionId || awaitingInitialSync || sessionLoading) {
+    return;
+  }
+  const suggestion = shouldSuggestAppearanceSwitch(
+    currentAppAppearance(),
+    analyzeTerminalBuffer(term),
+  );
+  if (!suggestion) {
+    hideAppearanceHint();
+    return;
+  }
+  showAppearanceHint(suggestion);
+}
+
+function scheduleAppearanceHintCheck() {
+  clearTimeout(appearanceHintTimer);
+  appearanceHintTimer = setTimeout(() => {
+    maybeShowAppearanceHint();
+  }, 1200);
+}
+
+function noteTerminalAppearanceChange() {
+  clearTimeout(appearanceHintDebounce);
+  appearanceHintDebounce = setTimeout(scheduleAppearanceHintCheck, 2000);
+}
+
+function resetAppearanceHintState() {
+  clearTimeout(appearanceHintTimer);
+  clearTimeout(appearanceHintDebounce);
+  appearanceHintTimer = null;
+  appearanceHintDebounce = null;
+  hideAppearanceHint();
+}
+
+function loadFontFamily() {
+  const stored = localStorage.getItem(FONT_FAMILY_KEY);
+  if (!stored || !fontSelect) {
+    return DEFAULT_FONT_FAMILY;
+  }
+  const known = [...fontSelect.options].some((option) => option.value === stored);
+  return known ? stored : DEFAULT_FONT_FAMILY;
+}
+
+function syncTerminalStageAppearance(appearance) {
+  if (terminalWrap) {
+    terminalWrap.dataset.terminalAppearance = appearance === "light" ? "light" : "dark";
+  }
+}
+
+function applyTerminalTheme(themeId) {
+  const entry = getTerminalTheme(themeId);
+  term.options.theme = { ...entry.xterm };
+  syncTerminalStageAppearance(entry.appearance);
+  if (typeof term.refresh === "function") {
+    term.refresh();
+  }
+  if (terminalThemeSelect) {
+    terminalThemeSelect.value = themeId;
+  }
+}
+
+const initialAppearance = loadAppAppearance();
+applyAppAppearance(initialAppearance);
+const initialThemeId = loadTerminalThemeId(initialAppearance);
+populateTerminalThemeSelect(initialThemeId, initialAppearance);
+const initialFontFamily = loadFontFamily();
+if (fontSelect) {
+  fontSelect.value = initialFontFamily;
+}
+syncTerminalStageAppearance(getTerminalTheme(initialThemeId).appearance);
 
 uiStatus.subscribe((text) => {
   statusMessage.textContent = text;
@@ -132,6 +381,7 @@ mountIcon(document.getElementById("refresh-sessions-icon"), "refresh-cw", { size
 mountIcon(document.getElementById("bootstrap-save-icon"), "save", { size: 16 });
 mountIcon(document.getElementById("zoom-out-icon"), "zoom-out", { size: 14 });
 mountIcon(document.getElementById("zoom-in-icon"), "zoom-in", { size: 14 });
+mountIcon(appearanceHintIcon, "info", { size: 16 });
 for (const slot of document.querySelectorAll("[data-icon]")) {
   mountIcon(slot, slot.dataset.icon, { size: 16 });
 }
@@ -167,35 +417,13 @@ const term = new Terminal({
   cursorBlink: true,
   fontSize: observeBaseFont,
   lineHeight: 1,
-  fontFamily: fontSelect.value,
+  fontFamily: fontSelect?.value || initialFontFamily,
   scrollback: 5000,
   customGlyphs: true,
   drawBoldTextInBrightColors: true,
   minimumContrastRatio: 1,
   allowTransparency: false,
-  theme: {
-    background: "#0a0a0a",
-    foreground: "#e4e4e4",
-    cursor: "#f97316",
-    cursorAccent: "#0a0a0a",
-    selectionBackground: "rgba(121, 192, 255, 0.35)",
-    black: "#0a0a0a",
-    red: "#f87171",
-    green: "#4ade80",
-    yellow: "#facc15",
-    blue: "#60a5fa",
-    magenta: "#c084fc",
-    cyan: "#22d3ee",
-    white: "#e4e4e4",
-    brightBlack: "#6b7280",
-    brightRed: "#fca5a5",
-    brightGreen: "#86efac",
-    brightYellow: "#fde047",
-    brightBlue: "#93c5fd",
-    brightMagenta: "#d8b4fe",
-    brightCyan: "#67e8f9",
-    brightWhite: "#f9fafb",
-  },
+  theme: { ...getTerminalTheme(initialThemeId).xterm },
   allowProposedApi: true,
 });
 const fitAddon = new FitAddon.FitAddon();
@@ -1071,6 +1299,7 @@ function finishInitialSync() {
   requestAnimationFrame(() => {
     requestAnimationFrame(() => applyTerminalLayout());
   });
+  scheduleAppearanceHintCheck();
 }
 
 async function fetchWithTimeout(url, options, timeoutMs) {
@@ -1174,6 +1403,7 @@ function writeWSChunk(data) {
       }
       term.write(chunk, () => {
         maybeFinishInitialSync();
+        noteTerminalAppearanceChange();
         resolve();
       });
     };
@@ -1195,6 +1425,7 @@ function disconnectWS() {
   clearTimeout(wsConnectTimeoutTimer);
   wsConnectTimeoutTimer = null;
   clearSyncPoll();
+  resetAppearanceHintState();
   if (ws) {
     ws.onclose = null;
     ws.close();
@@ -1648,8 +1879,35 @@ bootstrapForm.addEventListener("submit", (ev) => {
 
 fontSelect.addEventListener("change", () => {
   term.options.fontFamily = fontSelect.value;
+  localStorage.setItem(FONT_FAMILY_KEY, fontSelect.value);
   updateWebGLControl();
   scheduleTerminalLayout();
+});
+
+appAppearanceSelect?.addEventListener("change", () => {
+  const mode = appAppearanceSelect.value === "light" ? "light" : "dark";
+  applyAppAppearance(mode);
+  persistAppAppearance(mode);
+  reconcileTerminalThemeForAppearance(mode);
+  hideAppearanceHint();
+});
+
+appearanceHintApply?.addEventListener("click", () => {
+  if (!appearanceHintSuggestion) {
+    return;
+  }
+  applyAppAppearance(appearanceHintSuggestion);
+  persistAppAppearance(appearanceHintSuggestion);
+  reconcileTerminalThemeForAppearance(appearanceHintSuggestion);
+  actionAppearanceHint();
+});
+
+appearanceHintDismiss?.addEventListener("click", dismissAppearanceHint);
+
+terminalThemeSelect?.addEventListener("change", () => {
+  const themeId = terminalThemeSelect.value;
+  applyTerminalTheme(themeId);
+  localStorage.setItem(TERMINAL_THEME_KEY, themeId);
 });
 
 fontSizeSelect.addEventListener("change", () => {

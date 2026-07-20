@@ -21,6 +21,7 @@ const ICONS = {
     '<path d="m15 12-9 9"/><path d="M6.44 6.44a1.5 1.5 0 1 0 2.12 2.12l7.07-7.07a1.5 1.5 0 1 0-2.12-2.12z"/><path d="M18 11l-3-3"/><path d="M6 6l3 3"/>',
   "circle-help":
     '<circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><path d="M12 17h.01"/>',
+  info: '<circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/>',
 };
 
 export function icon(name, { size = 16, className = "" } = {}) {
