@@ -88,14 +88,14 @@ func drawChrome(img *image.RGBA, layout Layout, opts Options) {
 		drawWireframeChrome(img, layout, opts)
 		return
 	}
-	drawViewerFrame(img, layout)
+	drawViewerFrame(img, layout, opts)
 }
 
 func drawGridLabelOverlay(img *image.RGBA, layout Layout, opts Options) {
 	if opts.ChromePreset == ChromeOSWireframe || !opts.ShowGridSize {
 		return
 	}
-	drawGridLabel(img, layout)
+	drawGridLabel(img, layout, opts)
 }
 
 func drawWireframeChrome(img *image.RGBA, layout Layout, opts Options) {
@@ -115,14 +115,18 @@ func drawWireframeChrome(img *image.RGBA, layout Layout, opts Options) {
 	drawText(img, face, opts.Title, w/2, inset+layout.TitleBar*2/3, color.RGBA{228, 228, 231, 255}, true)
 }
 
-func drawViewerFrame(img *image.RGBA, layout Layout) {
-	frameBg := color.RGBA{11, 12, 15, 255}
-	border := color.RGBA{51, 78, 96, 255}
+func drawViewerFrame(img *image.RGBA, layout Layout, opts Options) {
+	accent := ThemeChromeAccentFor(opts)
+	frameBg := parseColor(accent.FrameBg, false).(color.RGBA)
+	border := parseColor(accent.Border, false).(color.RGBA)
+	termBG := color.RGBA{10, 10, 10, 255}
+	fillRoundRectEars(img, 0, 0, layout.FrameW, layout.FrameH, layout.FrameRadius, termBG)
 	fillRoundRect(img, 0, 0, layout.FrameW, layout.FrameH, layout.FrameRadius, frameBg)
 	strokeRoundRect(img, 0, 0, layout.FrameW, layout.FrameH, layout.FrameRadius, border, 1)
 }
 
-func drawGridLabel(img *image.RGBA, layout Layout) {
+func drawGridLabel(img *image.RGBA, layout Layout, opts Options) {
+	accent := ThemeChromeAccentFor(opts)
 	label := formatGridLabel(layout.Cols, layout.Rows)
 	fontSize := int(GridLabelFontPx() * float64(layout.RenderScale))
 	face, err := monoFace(float64(fontSize))
@@ -138,9 +142,12 @@ func drawGridLabel(img *image.RGBA, layout Layout) {
 	anchorY := layout.FrameH
 	x := anchorX - boxW - 6*layout.RenderScale
 	y := anchorY - boxH - 5*layout.RenderScale
-	fillRoundRect(img, x, y, boxW, boxH, 4*layout.RenderScale, color.RGBA{22, 22, 28, 224})
-	strokeRoundRect(img, x, y, boxW, boxH, 4*layout.RenderScale, color.RGBA{51, 78, 96, 140}, 1)
-	drawText(img, face, label, x+padX, y+padY+fontSize*88/100, color.RGBA{142, 200, 224, 255}, false)
+	labelBg := parseColor(accent.LabelBg, false).(color.RGBA)
+	labelBorder := parseColor(accent.LabelBorder, false).(color.RGBA)
+	labelText := parseColor(accent.LabelText, true).(color.RGBA)
+	fillRoundRect(img, x, y, boxW, boxH, 4*layout.RenderScale, labelBg)
+	strokeRoundRect(img, x, y, boxW, boxH, 4*layout.RenderScale, labelBorder, 1)
+	drawText(img, face, label, x+padX, y+padY+fontSize*88/100, labelText, false)
 }
 
 func formatGridLabel(cols, rows int) string {
@@ -180,7 +187,7 @@ func drawTerminal(img *image.RGBA, snap term.ScreenSnapshot, layout Layout, opts
 				fillRect(img, xOff, yOff, layout.CellW, layout.CellH, bg)
 				fg := parseColor(cell.Fg, true).(color.RGBA)
 				if cell.Ch != "" && cell.Ch != " " {
-					drawText(img, face, cell.Ch, xOff+2, yOff+layout.CellH*4/5, fg, false)
+					drawText(img, face, cell.Ch, xOff+cellTextX(layout.CellW, face, cell.Ch), yOff+cellTextY(layout.CellH), fg, false)
 				}
 				xOff += layout.CellW
 			}
@@ -189,9 +196,28 @@ func drawTerminal(img *image.RGBA, snap term.ScreenSnapshot, layout Layout, opts
 	}
 	fg := color.RGBA{201, 209, 217, 255}
 	for y, line := range snap.Lines {
-		drawText(img, face, line, layout.TermOffsetX+4, layout.TermOffsetY+y*layout.CellH+layout.CellH*4/5, fg, false)
+		drawText(img, face, line, layout.TermOffsetX+2, layout.TermOffsetY+y*layout.CellH+cellTextY(layout.CellH), fg, false)
 	}
 	return nil
+}
+
+func cellTextX(cellW int, face font.Face, ch string) int {
+	if ch == "" || ch == " " {
+		return 0
+	}
+	adv := font.MeasureString(face, ch).Round()
+	pad := (cellW - adv) / 2
+	if pad < 0 {
+		return 0
+	}
+	if pad > 2 {
+		return 2
+	}
+	return pad
+}
+
+func cellTextY(cellH int) int {
+	return cellH * 4 / 5
 }
 
 func monoFace(size float64) (font.Face, error) {
@@ -264,6 +290,50 @@ func fillRoundRect(img *image.RGBA, x, y, w, h, r int, c color.RGBA) {
 	fillCircle(img, x+w-r, y+r, r, c)
 	fillCircle(img, x+r, y+h-r, r, c)
 	fillCircle(img, x+w-r, y+h-r, r, c)
+}
+
+func fillRoundRectEars(img *image.RGBA, x, y, w, h, r int, c color.RGBA) {
+	for py := y; py < y+h; py++ {
+		for px := x; px < x+w; px++ {
+			if !insideRoundRect(px-x, py-y, w, h, r) {
+				if image.Pt(px, py).In(img.Bounds()) {
+					img.Set(px, py, c)
+				}
+			}
+		}
+	}
+}
+
+func insideRoundRect(lx, ly, w, h, r int) bool {
+	if lx < 0 || ly < 0 || lx >= w || ly >= h {
+		return false
+	}
+	if r > w/2 {
+		r = w / 2
+	}
+	if r > h/2 {
+		r = h / 2
+	}
+	if lx >= r && lx < w-r {
+		return true
+	}
+	if ly >= r && ly < h-r {
+		return true
+	}
+	var cx, cy float64
+	switch {
+	case lx < r && ly < r:
+		cx, cy = float64(r), float64(r)
+	case lx >= w-r && ly < r:
+		cx, cy = float64(w-r), float64(r)
+	case lx < r && ly >= h-r:
+		cx, cy = float64(r), float64(h-r)
+	default:
+		cx, cy = float64(w-r), float64(h-r)
+	}
+	dx := float64(lx) - cx
+	dy := float64(ly) - cy
+	return dx*dx+dy*dy <= float64(r*r)
 }
 
 func strokeRoundRect(img *image.RGBA, x, y, w, h, r int, c color.RGBA, thickness int) {

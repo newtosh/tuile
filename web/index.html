@@ -28,7 +28,7 @@
       href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600&display=swap"
       rel="stylesheet"
     />
-    <link rel="stylesheet" href="/assets/style.css" />
+    <link rel="stylesheet" href="/assets/style.css?v=__TUILE_VERSION__" />
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/css/xterm.css" />
   </head>
   <body>
@@ -51,9 +51,11 @@
           id="export-toggle"
           type="button"
           class="icon-btn"
-          title="Export screenshot"
+          title="Export screenshot (select a session first)"
           aria-haspopup="dialog"
           aria-controls="export-dialog"
+          aria-disabled="true"
+          disabled
         >
           <span id="export-toggle-icon" class="icon-slot"></span>
         </button>
@@ -116,8 +118,9 @@
                     <span id="webgl-info-icon" class="icon-slot"></span>
                   </button>
                   <span id="webgl-info-tooltip" class="info-tip-popover menu-note" role="tooltip">
-                    WebGL renderer for sharper Unicode and box-drawing. Programming ligatures (e.g.
-                    <code>=&gt;</code>) are not supported in the browser viewer yet.
+                    WebGL renderer for sharper Unicode and box-drawing. Programming ligatures
+                    (e.g. <code>..</code>, <code>=&gt;</code>) use the canvas renderer when
+                    enhanced rendering is off.
                   </span>
                 </span>
               </div>
@@ -281,7 +284,7 @@
           </select>
         </label>
         <label class="export-field" id="export-preset-wrap">
-          <span>Preset</span>
+          <span>Theme</span>
           <select id="export-background-preset">
             <option value="slate">Slate</option>
             <option value="ink">Ink</option>
@@ -330,6 +333,7 @@
     <script src="https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/lib/xterm.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@xterm/addon-fit@0.10.0/lib/addon-fit.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@xterm/addon-unicode11@0.8.0/lib/addon-unicode11.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@xterm/addon-canvas@0.7.0/lib/addon-canvas.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@xterm/addon-webgl@0.18.0/lib/addon-webgl.js"></script>
     <script type="module" src="/assets/app.js?v=__TUILE_VERSION__"></script>
   </body>

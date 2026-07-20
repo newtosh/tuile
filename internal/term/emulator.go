@@ -9,8 +9,9 @@ import (
 
 // Emulator wraps xterm-go for Tuile's shared PTY parsing layer.
 type Emulator struct {
-	mu   sync.RWMutex
-	term *xterm.Terminal
+	mu            sync.RWMutex
+	term          *xterm.Terminal
+	onDataDispose xterm.Disposable
 }
 
 // New creates a terminal emulator with the given dimensions.
@@ -105,10 +106,28 @@ func (e *Emulator) ReplayANSI() []byte {
 	return sa.Serialize(&xterm.SerializeOptions{ExcludeModes: true})
 }
 
+// SetOnData registers a callback for terminal-generated replies (OSC/CSI/DCS).
+func (e *Emulator) SetOnData(fn func(string)) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if e.onDataDispose != nil {
+		e.onDataDispose.Dispose()
+		e.onDataDispose = nil
+	}
+	if fn == nil || e.term == nil {
+		return
+	}
+	e.onDataDispose = e.term.OnData(fn)
+}
+
 // Close releases emulator resources.
 func (e *Emulator) Close() {
 	e.mu.Lock()
 	defer e.mu.Unlock()
+	if e.onDataDispose != nil {
+		e.onDataDispose.Dispose()
+		e.onDataDispose = nil
+	}
 	if e.term != nil {
 		e.term.Dispose()
 		e.term = nil

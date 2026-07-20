@@ -3,9 +3,12 @@ package export
 import (
 	"fmt"
 	"image/color"
+	"regexp"
 	"strconv"
 	"strings"
 )
+
+var rgbaRe = regexp.MustCompile(`^rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)(?:\s*,\s*([\d.]+))?\s*\)$`)
 
 // ansi16 maps classic xterm palette indices to RGB.
 var ansi16 = [16]color.RGBA{
@@ -44,6 +47,18 @@ func parseColor(raw string, isFG bool) color.Color {
 		if err == nil {
 			return color.RGBA{r, g, b, 255}
 		}
+	}
+	if m := rgbaRe.FindStringSubmatch(raw); len(m) > 0 {
+		r, _ := strconv.Atoi(m[1])
+		g, _ := strconv.Atoi(m[2])
+		b, _ := strconv.Atoi(m[3])
+		a := 255
+		if m[4] != "" {
+			if af, err := strconv.ParseFloat(m[4], 64); err == nil {
+				a = int(af * 255)
+			}
+		}
+		return color.RGBA{uint8(r), uint8(g), uint8(b), uint8(a)}
 	}
 	if strings.HasPrefix(raw, "p") {
 		idx, err := strconv.Atoi(raw[1:])

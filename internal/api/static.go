@@ -11,7 +11,7 @@ import (
 
 func (s *Server) registerStaticRoutes() {
 	assets, _ := fs.Sub(tuileweb.FS, ".")
-	s.mux.Handle("GET /assets/", http.StripPrefix("/assets/", http.FileServer(http.FS(assets))))
+	s.mux.Handle("GET /assets/", http.StripPrefix("/assets/", assetHandler(assets)))
 	s.mux.HandleFunc("GET /favicon.ico", func(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/assets/favicon.ico", http.StatusPermanentRedirect)
 	})
@@ -61,6 +61,20 @@ func formatVersionLabel(v string) string {
 		return v
 	}
 	return "v" + v
+}
+
+func assetHandler(assets fs.FS) http.Handler {
+	fileServer := http.FileServer(http.FS(assets))
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, ".js") {
+			w.Header().Set("Content-Type", "application/javascript; charset=utf-8")
+			w.Header().Set("Cache-Control", "no-cache")
+		} else if strings.HasSuffix(r.URL.Path, ".css") {
+			w.Header().Set("Content-Type", "text/css; charset=utf-8")
+			w.Header().Set("Cache-Control", "no-cache")
+		}
+		fileServer.ServeHTTP(w, r)
+	})
 }
 
 // DefaultDevOrigins returns browser Origin values for local viewer dev (R10 dev ergonomics).

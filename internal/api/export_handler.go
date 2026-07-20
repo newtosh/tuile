@@ -110,6 +110,20 @@ func parseExportMultipart(r *http.Request) (export.Options, io.Reader, error) {
 		}
 		opts.FontSizePx = n
 	}
+	if v := r.FormValue("term_w_px"); v != "" {
+		n, err := strconv.Atoi(v)
+		if err != nil {
+			return export.Options{}, nil, fmt.Errorf("invalid term_w_px")
+		}
+		opts.TermWPx = n
+	}
+	if v := r.FormValue("term_h_px"); v != "" {
+		n, err := strconv.Atoi(v)
+		if err != nil {
+			return export.Options{}, nil, fmt.Errorf("invalid term_h_px")
+		}
+		opts.TermHPx = n
+	}
 	if v := r.FormValue("title"); v != "" {
 		opts.Title = v
 	}

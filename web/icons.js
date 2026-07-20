@@ -52,5 +52,36 @@ export function mountIcon(el, name, options = {}) {
   if (!el) {
     return;
   }
-  el.innerHTML = icon(name, options);
+  const markup = icon(name, options);
+  if (!markup) {
+    return;
+  }
+  const tpl = document.createElement("template");
+  tpl.innerHTML = markup.trim();
+  const svg = tpl.content.firstElementChild;
+  if (!svg) {
+    return;
+  }
+  el.replaceChildren(svg);
+}
+
+export function initViewerIcons(root = document) {
+  const specs = [
+    ["settings-toggle-icon", "settings", { size: 18 }],
+    ["export-toggle-icon", "image", { size: 18 }],
+    ["export-close-icon", "x", { size: 18 }],
+    ["webgl-info-icon", "circle-help", { size: 14 }],
+    ["refresh-sessions-icon", "refresh-cw", { size: 16 }],
+    ["bootstrap-save-icon", "save", { size: 16 }],
+    ["github-link-icon", "github-logo", { size: 16 }],
+    ["zoom-out-icon", "zoom-out", { size: 14 }],
+    ["zoom-in-icon", "zoom-in", { size: 14 }],
+    ["appearance-hint-icon", "info", { size: 16 }],
+  ];
+  for (const [id, name, opts] of specs) {
+    mountIcon(root.getElementById(id), name, opts);
+  }
+  for (const slot of root.querySelectorAll("[data-icon]")) {
+    mountIcon(slot, slot.dataset.icon, { size: 16 });
+  }
 }

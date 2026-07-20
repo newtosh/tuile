@@ -50,13 +50,16 @@ func writeSVGChrome(buf *bytes.Buffer, layout Layout, opts Options) {
 		writeSVGWireframeChrome(buf, layout, opts)
 		return
 	}
-	fmt.Fprintf(buf, `<rect x="0" y="0" width="%d" height="%d" rx="%d" fill="#0b0c0f" stroke="#334e60" stroke-width="1"/>`, layout.FrameW, layout.FrameH, layout.FrameRadius)
+	accent := ThemeChromeAccentFor(opts)
+	fmt.Fprintf(buf, `<rect x="0" y="0" width="%d" height="%d" fill="#0a0a0a"/>`, layout.FrameW, layout.FrameH)
+	fmt.Fprintf(buf, `<rect x="0" y="0" width="%d" height="%d" rx="%d" fill="%s" stroke="%s" stroke-width="1"/>`, layout.FrameW, layout.FrameH, layout.FrameRadius, html.EscapeString(accent.FrameBg), html.EscapeString(accent.Border))
 }
 
 func writeSVGGridLabel(buf *bytes.Buffer, layout Layout, opts Options) {
 	if opts.ChromePreset == ChromeOSWireframe || !opts.ShowGridSize {
 		return
 	}
+	accent := ThemeChromeAccentFor(opts)
 	label := formatGridLabel(layout.Cols, layout.Rows)
 	fontSize := int(GridLabelFontPx() * float64(layout.RenderScale))
 	padX := 6 * layout.RenderScale
@@ -67,8 +70,8 @@ func writeSVGGridLabel(buf *bytes.Buffer, layout Layout, opts Options) {
 	anchorY := layout.FrameH
 	lx := anchorX - boxW - 6*layout.RenderScale
 	ly := anchorY - boxH - 5*layout.RenderScale
-	fmt.Fprintf(buf, `<rect x="%d" y="%d" width="%d" height="%d" rx="%d" fill="rgba(22,22,28,0.88)" stroke="rgba(51,78,96,0.55)" stroke-width="1"/>`, lx, ly, boxW, boxH, 4*layout.RenderScale)
-	fmt.Fprintf(buf, `<text x="%d" y="%d" fill="#8ec8e0" font-family="JetBrains Mono, ui-monospace, monospace" font-size="%d" font-weight="500">%s</text>`, lx+padX, ly+padY+fontSize*88/100, fontSize, html.EscapeString(label))
+	fmt.Fprintf(buf, `<rect x="%d" y="%d" width="%d" height="%d" rx="%d" fill="%s" stroke="%s" stroke-width="1"/>`, lx, ly, boxW, boxH, 4*layout.RenderScale, html.EscapeString(accent.LabelBg), html.EscapeString(accent.LabelBorder))
+	fmt.Fprintf(buf, `<text x="%d" y="%d" fill="%s" font-family="JetBrains Mono, ui-monospace, monospace" font-size="%d" font-weight="500">%s</text>`, lx+padX, ly+padY+fontSize*88/100, html.EscapeString(accent.LabelText), fontSize, html.EscapeString(label))
 }
 
 func writeSVGWireframeChrome(buf *bytes.Buffer, layout Layout, opts Options) {
@@ -110,7 +113,7 @@ func writeSVGTerminal(buf *bytes.Buffer, snap term.ScreenSnapshot, layout Layout
 					xOff += layout.CellW
 					continue
 				}
-				fmt.Fprintf(buf, `<text x="%d" y="%d" fill="rgb(%d,%d,%d)" font-family="monospace" font-size="%d">%s</text>`, xOff+2, y*layout.CellH+fontSize, fr>>8, fgC>>8, fb>>8, fontSize, ch)
+				fmt.Fprintf(buf, `<text x="%d" y="%d" text-anchor="middle" fill="rgb(%d,%d,%d)" font-family="monospace" font-size="%d">%s</text>`, xOff+layout.CellW/2, y*layout.CellH+fontSize, fr>>8, fgC>>8, fb>>8, fontSize, ch)
 				xOff += layout.CellW
 			}
 		}

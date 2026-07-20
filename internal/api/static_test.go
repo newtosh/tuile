@@ -65,6 +65,12 @@ func TestAssetsServed(t *testing.T) {
 	if !strings.Contains(rec.Body.String(), "connectWS") {
 		t.Fatal("expected app.js content")
 	}
+	if ct := rec.Header().Get("Content-Type"); !strings.Contains(ct, "javascript") {
+		t.Fatalf("content-type = %q", ct)
+	}
+	if cc := rec.Header().Get("Cache-Control"); cc != "no-cache" {
+		t.Fatalf("cache-control = %q", cc)
+	}
 }
 
 func TestBundledFontServed(t *testing.T) {

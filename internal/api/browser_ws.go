@@ -8,6 +8,7 @@ import (
 	"github.com/coder/websocket"
 	"github.com/newtosh/tuile/internal/auth"
 	"github.com/newtosh/tuile/internal/session"
+	"github.com/newtosh/tuile/internal/term"
 )
 
 func (s *Server) registerConcurrencyRoutes() {
@@ -148,6 +149,13 @@ func (s *Server) serveSessionWS(w http.ResponseWriter, r *http.Request, sess *se
 				return
 			}
 			if typ != websocket.MessageBinary && typ != websocket.MessageText {
+				continue
+			}
+			if term.IsTerminalResponse(data) {
+				if err := s.sess.WritePTYResponse(sess.ID, data); err != nil {
+					errCh <- err
+					return
+				}
 				continue
 			}
 			if !auth.HasScope(claims, auth.ScopeHumanControl) {

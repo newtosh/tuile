@@ -1,4 +1,4 @@
-import { mountIcon } from "./icons.js";
+import { initViewerIcons, mountIcon } from "./icons.js";
 import { sessions as $sessions, activeSessionId as $activeSessionId, uiStatus, uiBadge } from "./state.js";
 import {
   defaultTerminalThemeIdForAppearance,
@@ -23,8 +23,13 @@ import {
   pruneClientSessionState,
   saveAckMap,
 } from "./session-state.js";
-import { composeExport, downloadBlob } from "./export-compositor.js";
-import { defaultExportOptions, exportFilename } from "./export-options.js";
+import { defaultExportOptions, exportFilename, themeChromeAccents } from "./export-options.js";
+import { installLigatures } from "./ligatures.js";
+
+initViewerIcons();
+if (document.readyState === "loading") {
+  document.addEventListener("DOMContentLoaded", () => initViewerIcons(), { once: true });
+}
 
 const params = new URLSearchParams(window.location.search);
 const BOOTSTRAP_KEY = "tuile_bootstrap";
@@ -115,7 +120,7 @@ let wsWriteChain = Promise.resolve();
 const FONT_SIZE_KEY = "tuile_font_size";
 const DEFAULT_FONT_SIZE = 20;
 let observeBaseFont = DEFAULT_FONT_SIZE;
-const OBSERVE_FONT_MIN = 12;
+const OBSERVE_FONT_MIN = 14;
 const OBSERVE_FONT_MAX = 64;
 const OBSERVE_VIEW_INSET = 4;
 const GRID_FRAME_PAD = 14;
@@ -141,12 +146,12 @@ if (params.get("bootstrap")) {
   window.history.replaceState(null, "", next);
 }
 
-bootstrapInput.value = bootstrapSecret;
-fontSizeSelect.value = fontSizeMode;
+bootstrapInput && (bootstrapInput.value = bootstrapSecret);
+fontSizeSelect && (fontSizeSelect.value = fontSizeMode);
 observeBaseFont = fontSizeMode === "auto" ? DEFAULT_FONT_SIZE : parseInt(fontSizeMode, 10) || DEFAULT_FONT_SIZE;
 
-sessionSortSelect.value = loadSessionSort();
-sessionInactiveMins.value = String(getInactiveMins());
+sessionSortSelect && (sessionSortSelect.value = loadSessionSort());
+sessionInactiveMins && (sessionInactiveMins.value = String(getInactiveMins()));
 
 function loadAppAppearancePreference() {
   const stored =
@@ -404,10 +409,6 @@ $sessions.subscribe((list) => {
   renderSessionList(list);
 });
 
-mountIcon(document.getElementById("settings-toggle-icon"), "settings", { size: 18 });
-mountIcon(document.getElementById("export-toggle-icon"), "image", { size: 18 });
-mountIcon(document.getElementById("export-close-icon"), "x", { size: 18 });
-
 function formatVersionLabel(raw) {
   const v = String(raw || "").trim();
   if (!v || v === "__TUILE_VERSION__") {
@@ -442,16 +443,6 @@ async function initAppVersion() {
 }
 
 void initAppVersion();
-mountIcon(document.getElementById("webgl-info-icon"), "circle-help", { size: 14 });
-mountIcon(document.getElementById("refresh-sessions-icon"), "refresh-cw", { size: 16 });
-mountIcon(document.getElementById("bootstrap-save-icon"), "save", { size: 16 });
-mountIcon(document.getElementById("github-link-icon"), "github-logo", { size: 16 });
-mountIcon(document.getElementById("zoom-out-icon"), "zoom-out", { size: 14 });
-mountIcon(document.getElementById("zoom-in-icon"), "zoom-in", { size: 14 });
-mountIcon(appearanceHintIcon, "info", { size: 16 });
-for (const slot of document.querySelectorAll("[data-icon]")) {
-  mountIcon(slot, slot.dataset.icon, { size: 16 });
-}
 
 function setSettingsOpen(open) {
   settingsMenu.hidden = !open;
@@ -483,8 +474,8 @@ document.addEventListener("keydown", (ev) => {
 const term = new Terminal({
   cursorBlink: true,
   fontSize: observeBaseFont,
-  lineHeight: 1,
   fontFamily: fontSelect?.value || initialFontFamily,
+  letterSpacing: 0,
   scrollback: 5000,
   customGlyphs: true,
   drawBoldTextInBrightColors: true,
@@ -496,11 +487,14 @@ const term = new Terminal({
 const fitAddon = new FitAddon.FitAddon();
 const unicode11Addon = new Unicode11Addon.Unicode11Addon();
 let webglAddon = null;
+let canvasAddon = null;
+let removeLigatures = null;
 
 term.loadAddon(fitAddon);
 term.loadAddon(unicode11Addon);
 term.unicode.activeVersion = "11";
 term.open(terminalWrap);
+syncTerminalInputMode();
 
 function readWebGLPref() {
   if (localStorage.getItem(WEBGL_KEY) !== null) {
@@ -509,7 +503,7 @@ function readWebGLPref() {
   if (localStorage.getItem(LEGACY_LIGATURES_KEY) !== null) {
     return localStorage.getItem(LEGACY_LIGATURES_KEY) === "1";
   }
-  return true;
+  return false;
 }
 
 function setWebGLClass(enabled) {
@@ -527,9 +521,38 @@ function updateWebGLControl() {
   setWebGLRenderer(webglToggle.checked);
 }
 
+function refreshLigatures() {
+  removeLigatures?.();
+  removeLigatures = null;
+  if (!webglAddon && canvasAddon) {
+    removeLigatures = installLigatures(term);
+    term.refresh(0, term.rows - 1);
+  }
+}
+
+function setCanvasRenderer(enabled) {
+  if (enabled && !canvasAddon && !webglAddon && window.CanvasAddon) {
+    try {
+      canvasAddon = new CanvasAddon.CanvasAddon();
+      term.loadAddon(canvasAddon);
+      term.refresh(0, term.rows - 1);
+    } catch (err) {
+      setStatus(`Canvas renderer unavailable: ${err.message}`);
+    }
+    return;
+  }
+  if (!enabled && canvasAddon) {
+    canvasAddon.dispose();
+    canvasAddon = null;
+  }
+}
+
 function setWebGLRenderer(enabled) {
   if (enabled && !webglAddon && window.WebglAddon) {
     try {
+      removeLigatures?.();
+      removeLigatures = null;
+      setCanvasRenderer(false);
       webglAddon = new WebglAddon.WebglAddon();
       term.loadAddon(webglAddon);
       webglAddon.onContextLoss(() => {
@@ -545,13 +568,17 @@ function setWebGLRenderer(enabled) {
       webglToggle.checked = false;
       webglToggle.setAttribute("aria-checked", "false");
       setWebGLClass(false);
+      refreshLigatures();
     }
     return;
   }
   if (!enabled && webglAddon) {
     webglAddon.dispose();
     webglAddon = null;
-    term.refresh(0, term.rows - 1);
+  }
+  if (!enabled) {
+    setCanvasRenderer(true);
+    refreshLigatures();
   }
 }
 
@@ -1079,6 +1106,7 @@ async function closeSession(id) {
     showPlaceholder(true);
     setMode("waiting");
     setStatus("Session closed — select another or wait for a new one.");
+    syncExportToggle();
   }
 }
 
@@ -1408,6 +1436,7 @@ function scaleTerminalObserve() {
 }
 
 function applyTerminalLayout() {
+  syncTerminalInputMode();
   if (controlling) {
     terminalWrap.classList.remove("observe-mode");
     hideGridFrame();
@@ -1420,11 +1449,12 @@ function applyTerminalLayout() {
     setStatus(`Control — ${term.cols}×${term.rows}`);
     return;
   }
-  // Observe mode uses the DOM renderer so zoom/font-fit stays aligned with the PTY grid.
+  // Observe mode uses the canvas renderer (not DOM) so ligatures and grid metrics stay aligned.
   // WebGL loses its glyph atlas after observe layout (blank canvas at <100% zoom).
   setWebGLRenderer(false);
   term.resize(ptyCols, ptyRows);
   scaleTerminalObserve();
+  refreshLigatures();
 }
 
 function scheduleTerminalLayout() {
@@ -1476,6 +1506,7 @@ async function loadScreenSnapshot({ forceFinish = false } = {}) {
   ptyRows = body.screen?.rows || ptyRows;
   term.reset();
   term.resize(ptyCols, ptyRows);
+  refreshLigatures();
   if (body.replay_b64) {
     const bytes = decodeReplayB64(body.replay_b64);
     await writeToTerminal(REPLAY_RESET);
@@ -1586,6 +1617,7 @@ function disconnectWS() {
   syncFallbackTimer = null;
   wsWriteChain = Promise.resolve();
   controlling = false;
+  syncTerminalInputMode();
   takeoverBtn.disabled = true;
   releaseBtn.disabled = true;
 }
@@ -1613,6 +1645,7 @@ function connectWS() {
 
   term.reset();
   term.resize(ptyCols, ptyRows);
+  refreshLigatures();
 
   ws = new WebSocket(wsURL());
   ws.binaryType = "arraybuffer";
@@ -1782,6 +1815,7 @@ async function attachToSession(id, { force = false } = {}) {
   } finally {
     attaching = false;
     updateSessionLoadingState();
+    syncExportToggle();
   }
 }
 
@@ -1842,6 +1876,7 @@ async function refreshSessions({ autoAttach = true } = {}) {
       setMode("idle");
       setStatus("Multiple sessions available — select one to tail.");
     }
+    syncExportToggle();
     return true;
   } catch (err) {
     setStatus(`Session discovery failed: ${err.message}`);
@@ -1935,10 +1970,28 @@ function startPolling() {
 }
 
 function sendInput(data) {
-  if (!ws || ws.readyState !== WebSocket.OPEN || !controlling) {
+  if (!ws || ws.readyState !== WebSocket.OPEN) {
     return;
   }
-  ws.send(data);
+  if (controlling || isTerminalResponse(data)) {
+    ws.send(data);
+  }
+}
+
+function isTerminalResponse(data) {
+  if (!data) {
+    return false;
+  }
+  const code = data.charCodeAt(0);
+  if (code !== 0x1b) {
+    return false;
+  }
+  const kind = data.charCodeAt(1);
+  return kind === 0x5d || kind === 0x5b || kind === 0x50;
+}
+
+function syncTerminalInputMode() {
+  term.options.disableStdin = !controlling;
 }
 
 term.onData((data) => {
@@ -1958,6 +2011,7 @@ takeoverBtn.addEventListener("click", async () => {
   try {
     await postJSON(`/v1/sessions/${sessionId}/takeover`);
     controlling = true;
+    syncTerminalInputMode();
     setMode("control", "control");
     applyTerminalLayout();
   } catch (err) {
@@ -1969,11 +2023,13 @@ releaseBtn.addEventListener("click", async () => {
   try {
     await postJSON(`/v1/sessions/${sessionId}/release`);
     controlling = false;
+    syncTerminalInputMode();
     setMode("observe", "observe");
     awaitingInitialSync = true;
     setSessionLoading(true, "Refreshing terminal…");
     term.reset();
     term.resize(ptyCols, ptyRows);
+    refreshLigatures();
     await loadScreenSnapshot({ forceFinish: true });
   } catch (err) {
     setStatus(`Release failed: ${err.message}`);
@@ -2030,9 +2086,10 @@ bootstrapForm.addEventListener("submit", (ev) => {
   refreshSessions({ autoAttach: true });
 });
 
-fontSelect.addEventListener("change", () => {
+fontSelect?.addEventListener("change", () => {
   term.options.fontFamily = fontSelect.value;
   localStorage.setItem(FONT_FAMILY_KEY, fontSelect.value);
+  refreshLigatures();
   updateWebGLControl();
   scheduleTerminalLayout();
 });
@@ -2063,7 +2120,7 @@ terminalThemeSelect?.addEventListener("change", () => {
   localStorage.setItem(TERMINAL_THEME_KEY, themeId);
 });
 
-fontSizeSelect.addEventListener("change", () => {
+fontSizeSelect?.addEventListener("change", () => {
   fontSizeMode = fontSizeSelect.value;
   localStorage.setItem(FONT_SIZE_KEY, fontSizeMode);
   observeBaseFont =
@@ -2160,6 +2217,42 @@ const exportCustomWrap = document.getElementById("export-custom-wrap");
 const exportGridWrap = document.getElementById("export-grid-wrap");
 const exportShowGrid = document.getElementById("export-show-grid");
 const exportChrome = document.getElementById("export-chrome");
+const exportThemePreset = document.getElementById("export-background-preset");
+
+const EXPORT_THEME_VARS = [
+  "--export-frame-accent",
+  "--export-frame-dim",
+  "--export-frame-label-text",
+  "--export-frame-label-border",
+];
+
+function applyExportThemePreview(presetId) {
+  if (!terminalWrap) {
+    return;
+  }
+  const accents = themeChromeAccents(presetId);
+  terminalWrap.style.setProperty("--export-frame-accent", accents.border);
+  terminalWrap.style.setProperty("--export-frame-dim", accents.border);
+  terminalWrap.style.setProperty("--export-frame-label-text", accents.labelText);
+  terminalWrap.style.setProperty("--export-frame-label-border", accents.labelBorder);
+}
+
+function clearExportThemePreview() {
+  if (!terminalWrap) {
+    return;
+  }
+  for (const name of EXPORT_THEME_VARS) {
+    terminalWrap.style.removeProperty(name);
+  }
+}
+
+function syncExportThemePreview() {
+  if (exportBgMode?.value !== "preset") {
+    clearExportThemePreview();
+    return;
+  }
+  applyExportThemePreview(exportThemePreset?.value || "slate");
+}
 
 function viewerExportDefaults() {
   const sess = knownSessions.find((s) => s.session_id === sessionId);
@@ -2190,6 +2283,23 @@ function syncExportBackgroundFields() {
   }
 }
 
+function syncExportToggle() {
+  const toggle = document.getElementById("export-toggle");
+  const dialog = document.getElementById("export-dialog");
+  if (!toggle) {
+    return;
+  }
+  const canExport = Boolean(sessionId && token);
+  toggle.disabled = !canExport;
+  toggle.setAttribute("aria-disabled", String(!canExport));
+  toggle.title = canExport
+    ? "Export screenshot"
+    : "Export screenshot (select a session first)";
+  if (!canExport && dialog?.open) {
+    closeExportDialog();
+  }
+}
+
 function openExportDialog() {
   if (!exportDialog || !sessionId) {
     setStatus("Attach to a session before exporting.");
@@ -2206,12 +2316,22 @@ function openExportDialog() {
     exportShowGrid.checked = defaults.show_grid_size;
   }
   syncExportBackgroundFields();
+  syncExportThemePreview();
   exportDialog.showModal();
 }
 
+function closeExportDialog() {
+  exportDialog?.close();
+  clearExportThemePreview();
+}
+
 exportToggle?.addEventListener("click", () => openExportDialog());
-exportClose?.addEventListener("click", () => exportDialog?.close());
-exportBgMode?.addEventListener("change", syncExportBackgroundFields);
+exportClose?.addEventListener("click", () => closeExportDialog());
+exportBgMode?.addEventListener("change", () => {
+  syncExportBackgroundFields();
+  syncExportThemePreview();
+});
+exportThemePreset?.addEventListener("change", syncExportThemePreview);
 exportChrome?.addEventListener("change", syncExportBackgroundFields);
 
 exportForm?.addEventListener("submit", async (ev) => {
@@ -2244,6 +2364,7 @@ exportForm?.addEventListener("submit", async (ev) => {
     const body = await res.json();
     const replayBytes = body.replay_b64 ? decodeReplayB64(body.replay_b64) : null;
     const grid = measureTerminalGrid();
+    const { composeExport, downloadBlob } = await import("./export-compositor.js");
     const blob = await composeExport({
       screen: body.screen,
       replayBytes,
@@ -2255,12 +2376,13 @@ exportForm?.addEventListener("submit", async (ev) => {
         cols: ptyCols,
         rows: ptyRows,
         fontSizePx: term?.options?.fontSize,
+        fontFamily: fontSelect?.value || term?.options?.fontFamily,
       },
     });
     const ext = opts.format === "svg" ? "svg" : "png";
     downloadBlob(blob, exportFilename(opts.title, opts.format));
     setStatus("Export downloaded.");
-    exportDialog?.close();
+    closeExportDialog();
   } catch (err) {
     setStatus(`Export failed: ${err.message}`);
   }
@@ -2290,12 +2412,14 @@ async function boot() {
       }
       showPlaceholder(false);
       connectWS();
+      syncExportToggle();
       return;
     }
     await attachToSession(sessionId);
     return;
   }
   await refreshSessions({ autoAttach: true });
+  syncExportToggle();
 }
 
 boot();

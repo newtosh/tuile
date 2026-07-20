@@ -8,6 +8,7 @@ import {
   defaultExportOptions,
   exportFilename,
   exportScales,
+  themeChromeAccents,
   titleBarHeight,
   validateExportOptions,
   viewerFrameMetrics,
@@ -49,6 +50,13 @@ describe("export-options", () => {
     const m = viewerFrameMetrics(2);
     assert.equal(m.framePad, 28);
     assert.equal(m.radius, 20);
+  });
+
+  it("theme accents vary by preset", () => {
+    const sunset = themeChromeAccents("sunset");
+    const slate = themeChromeAccents("slate");
+    assert.notEqual(sunset.border, slate.border);
+    assert.notEqual(sunset.labelText, slate.labelText);
   });
 
   it("background presets include slate", () => {

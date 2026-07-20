@@ -7,7 +7,6 @@ import {
   CHROME_OS_WIREFRAME,
   FORMAT_PNG,
   FORMAT_SVG,
-  VIEWER_FRAME,
   chromeInnerGap,
   chromePadding,
   exportScales,
@@ -16,6 +15,7 @@ import {
   validateExportOptions,
   viewerFrameMetrics,
 } from "./export-options.js";
+import { installLigatures } from "./ligatures.js";
 
 const STROKE = "#8b8b9e";
 const FRAME_FILL = "#16161a";
@@ -69,7 +69,7 @@ export function computeLayout(screen, opts, viewerMetrics = null) {
     };
   }
 
-  const frame = viewerFrameMetrics(renderScale);
+  const frame = viewerFrameMetrics(renderScale, opts);
   const frameW = termW + frame.framePad * 2;
   const frameH = termH + frame.framePad * 2;
   const renderOuterW = frameW;
@@ -106,7 +106,7 @@ function finalizeRenderLayout(layout, opts, termW, termH) {
       termY: layout.pad + layout.title + layout.inner,
     };
   }
-  const frame = viewerFrameMetrics(layout.renderScale);
+  const frame = viewerFrameMetrics(layout.renderScale, opts);
   const frameW = termW + frame.framePad * 2;
   const frameH = termH + frame.framePad * 2;
   const renderOuterW = frameW;
@@ -183,10 +183,32 @@ function drawBackground(ctx, layout, opts, bgImage) {
   ctx.fillRect(0, 0, w, h);
 }
 
+function fillFrameCornerEars(ctx, w, h, radius, color) {
+  const r = Math.min(radius, w / 2, h / 2);
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(0, 0, w, h);
+  ctx.moveTo(r, 0);
+  ctx.lineTo(w - r, 0);
+  ctx.quadraticCurveTo(w, 0, w, r);
+  ctx.lineTo(w, h - r);
+  ctx.quadraticCurveTo(w, h, w - r, h);
+  ctx.lineTo(r, h);
+  ctx.quadraticCurveTo(0, h, 0, h - r);
+  ctx.lineTo(0, r);
+  ctx.quadraticCurveTo(0, 0, r, 0);
+  ctx.closePath();
+  ctx.fillStyle = color;
+  ctx.fill("evenodd");
+  ctx.restore();
+}
+
 function drawViewerFrame(ctx, layout) {
   const s = layout.renderScale ?? layout.scale;
   const w = layout.frameW;
   const h = layout.frameH;
+
+  fillFrameCornerEars(ctx, w, h, layout.radius, TERM_BG);
 
   ctx.save();
   ctx.shadowColor = "rgba(0, 0, 0, 0.28)";
@@ -223,12 +245,12 @@ function drawGridLabel(ctx, layout) {
   const y = anchorY - boxH - offsetY;
 
   roundRectPath(ctx, x, y, boxW, boxH, radius);
-  ctx.fillStyle = VIEWER_FRAME.labelBg;
+  ctx.fillStyle = layout.labelBg;
   ctx.fill();
-  ctx.strokeStyle = VIEWER_FRAME.labelBorder;
+  ctx.strokeStyle = layout.labelBorder;
   ctx.lineWidth = 1;
   ctx.stroke();
-  ctx.fillStyle = VIEWER_FRAME.labelText;
+  ctx.fillStyle = layout.labelText;
   ctx.textBaseline = "alphabetic";
   ctx.fillText(label, x + padX, y + padY + fontSize * 0.88);
 }
@@ -314,12 +336,14 @@ function writeTerminal(term, data) {
 function loadExportTerminal(host, layout, options, viewerMetrics) {
   const fontPx = viewerMetrics?.fontSizePx || layout.fontPx;
   const terminalFontPx = fontPx * (layout.renderScale ?? layout.scale);
+  const fontFamily = viewerMetrics?.fontFamily || options.font_family;
   const term = new Terminal({
     cols: viewerMetrics?.cols || layout.cols,
     rows: viewerMetrics?.rows || layout.rows,
-    fontFamily: options.font_family,
+    fontFamily,
     fontSize: terminalFontPx,
     lineHeight: 1,
+    letterSpacing: 0,
     customGlyphs: true,
     drawBoldTextInBrightColors: true,
     scrollback: 0,
@@ -348,22 +372,19 @@ function loadExportTerminal(host, layout, options, viewerMetrics) {
   });
   term.open(host);
 
-  let webglAddon = null;
+  let removeLigatures = null;
   if (window.Unicode11Addon) {
     const unicode11Addon = new Unicode11Addon.Unicode11Addon();
     term.loadAddon(unicode11Addon);
     term.unicode.activeVersion = "11";
   }
-  if (window.WebglAddon) {
-    try {
-      webglAddon = new WebglAddon.WebglAddon();
-      term.loadAddon(webglAddon);
-    } catch {
-      webglAddon = null;
-    }
+  if (window.CanvasAddon) {
+    const canvasAddon = new CanvasAddon.CanvasAddon();
+    term.loadAddon(canvasAddon);
   }
+  removeLigatures = installLigatures(term);
 
-  return { term, webglAddon };
+  return { term, removeLigatures };
 }
 
 function compositeTerminalCanvases(host) {
@@ -433,7 +454,7 @@ export async function composeExportPNG({ screen, replayBytes, opts, backgroundFi
   host.style.cssText = "position:fixed;left:0;top:0;opacity:0;pointer-events:none;z-index:-1;";
   document.body.appendChild(host);
 
-  const { term, webglAddon } = loadExportTerminal(host, layout, options, viewerMetrics);
+  const { term, removeLigatures } = loadExportTerminal(host, layout, options, viewerMetrics);
   try {
     if (replayBytes?.length) {
       await writeTerminal(term, replayBytes);
@@ -482,7 +503,7 @@ export async function composeExportPNG({ screen, replayBytes, opts, backgroundFi
     });
     return blob;
   } finally {
-    webglAddon?.dispose();
+    removeLigatures?.();
     term.dispose();
     host.remove();
   }
@@ -529,6 +550,7 @@ export async function composeExportSVG({ screen, opts, viewerMetrics }) {
     }
     svg += `<text x="${layout.renderOuterW / 2}" y="${layout.pad + layout.title * 0.62}" text-anchor="middle" fill="#e4e4e7" font-family="system-ui" font-size="${12 * s}" font-weight="600">${escapeXml(options.title || "tuile")}</text>`;
   } else {
+    svg += `<rect x="0" y="0" width="${layout.frameW}" height="${layout.frameH}" fill="${TERM_BG}"/>`;
     svg += `<rect x="0" y="0" width="${layout.frameW}" height="${layout.frameH}" rx="${layout.radius}" fill="${layout.frameBg}" stroke="${layout.border}" stroke-width="1"/>`;
   }
 
@@ -548,8 +570,8 @@ export async function composeExportSVG({ screen, opts, viewerMetrics }) {
     const boxH = badge.fontSize + badge.padY * 2;
     const lx = anchorX - boxW - badge.offsetX;
     const ly = anchorY - boxH - badge.offsetY;
-    svg += `<rect x="${lx}" y="${ly}" width="${boxW}" height="${boxH}" rx="${badge.radius}" fill="${VIEWER_FRAME.labelBg}" stroke="${VIEWER_FRAME.labelBorder}" stroke-width="1"/>`;
-    svg += `<text x="${lx + badge.padX}" y="${ly + badge.padY + badge.fontSize * 0.88}" fill="${VIEWER_FRAME.labelText}" font-family="JetBrains Mono, ui-monospace, monospace" font-size="${badge.fontSize}" font-weight="500">${escapeXml(label)}</text>`;
+    svg += `<rect x="${lx}" y="${ly}" width="${boxW}" height="${boxH}" rx="${badge.radius}" fill="${layout.labelBg}" stroke="${layout.labelBorder}" stroke-width="1"/>`;
+    svg += `<text x="${lx + badge.padX}" y="${ly + badge.padY + badge.fontSize * 0.88}" fill="${layout.labelText}" font-family="JetBrains Mono, ui-monospace, monospace" font-size="${badge.fontSize}" font-weight="500">${escapeXml(label)}</text>`;
   }
 
   svg += `</svg>`;

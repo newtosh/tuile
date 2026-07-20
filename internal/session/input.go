@@ -25,6 +25,19 @@ func (m *Manager) WriteAgentInput(id string, data []byte, raw bool, submit bool)
 	return pty.WritePreparedInput(sess.PTY.File, in, writeOptsForSession(sess))
 }
 
+// WritePTYResponse forwards auto-generated terminal replies to the PTY.
+// These bypass observe-only gating so apps like Neovim can query colors in observe mode.
+func (m *Manager) WritePTYResponse(id string, data []byte) error {
+	sess, ok := m.Get(id)
+	if !ok {
+		return ErrNotFound
+	}
+	if len(data) == 0 {
+		return nil
+	}
+	return pty.WritePreparedInput(sess.PTY.File, pty.PTYInput{Payload: data}, writeOptsForSession(sess))
+}
+
 // WriteHumanInput sends human bytes when the human has taken over.
 func (m *Manager) WriteHumanInput(id string, data []byte, raw bool, submit bool) error {
 	sess, ok := m.Get(id)

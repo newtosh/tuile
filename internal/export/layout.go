@@ -58,11 +58,6 @@ func ComputeLayout(snap term.ScreenSnapshot, opts Options) Layout {
 	exportScale := opts.LayoutScale()
 	renderScale := InternalRenderScale(exportScale)
 	fontPx := EffectiveFontPx(opts)
-	cellW := fontPx * 6 / 10
-	if cellW < 8 {
-		cellW = 8
-	}
-	cellH := fontPx + 6
 	cols := snap.Cols
 	if cols == 0 {
 		cols = maxInt(1, longestLineCols(snap.Lines))
@@ -74,8 +69,7 @@ func ComputeLayout(snap term.ScreenSnapshot, opts Options) Layout {
 	if rows == 0 {
 		rows = 1
 	}
-	termW := cols * cellW * renderScale
-	termH := rows * cellH * renderScale
+	cellW, cellH, termW, termH := layoutCellGeometry(cols, rows, fontPx, renderScale, opts)
 
 	if opts.ChromePreset == ChromeOSWireframe {
 		pad := ChromePadding() * renderScale
@@ -87,8 +81,8 @@ func ComputeLayout(snap term.ScreenSnapshot, opts Options) Layout {
 			ExportScale:  exportScale,
 			RenderScale:  renderScale,
 			Downscale:    renderScale / exportScale,
-			CellW:        cellW * renderScale,
-			CellH:        cellH * renderScale,
+			CellW:        cellW,
+			CellH:        cellH,
 			TermW:        termW,
 			TermH:        termH,
 			ChromePad:    pad,
@@ -115,8 +109,8 @@ func ComputeLayout(snap term.ScreenSnapshot, opts Options) Layout {
 		ExportScale:  exportScale,
 		RenderScale:  renderScale,
 		Downscale:    renderScale / exportScale,
-		CellW:        cellW * renderScale,
-		CellH:        cellH * renderScale,
+		CellW:        cellW,
+		CellH:        cellH,
 		TermW:        termW,
 		TermH:        termH,
 		FramePad:     framePad,
@@ -133,6 +127,34 @@ func ComputeLayout(snap term.ScreenSnapshot, opts Options) Layout {
 		TermOffsetX:  framePad,
 		TermOffsetY:  framePad,
 	}
+}
+
+func layoutCellGeometry(cols, rows, fontPx, renderScale int, opts Options) (cellW, cellH, termW, termH int) {
+	if opts.TermWPx > 0 && opts.TermHPx > 0 {
+		termW = opts.TermWPx * renderScale
+		termH = opts.TermHPx * renderScale
+		if cols > 0 {
+			cellW = termW / cols
+		} else {
+			cellW = 8 * renderScale
+		}
+		if rows > 0 {
+			cellH = termH / rows
+		} else {
+			cellH = (fontPx + 6) * renderScale
+		}
+		return cellW, cellH, termW, termH
+	}
+	baseW := fontPx * 6 / 10
+	if baseW < 8 {
+		baseW = 8
+	}
+	baseH := fontPx + 6
+	cellW = baseW * renderScale
+	cellH = baseH * renderScale
+	termW = cols * cellW
+	termH = rows * cellH
+	return cellW, cellH, termW, termH
 }
 
 func longestLineCols(lines []string) int {

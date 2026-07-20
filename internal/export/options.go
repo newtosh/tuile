@@ -29,6 +29,8 @@ type Options struct {
 	Format           string `json:"format"`
 	FontFamily       string `json:"font_family,omitempty"`
 	FontSizePx       int    `json:"font_size_px,omitempty"`
+	TermWPx          int    `json:"term_w_px,omitempty"`
+	TermHPx          int    `json:"term_h_px,omitempty"`
 	Theme            string `json:"theme,omitempty"`
 	Title            string `json:"title,omitempty"`
 	ShowGridSize     bool   `json:"show_grid_size"`
@@ -82,6 +84,15 @@ func (o *Options) Validate() error {
 	}
 	if o.FontSizePx > 48 {
 		return fmt.Errorf("font_size_px too large")
+	}
+	if (o.TermWPx > 0) != (o.TermHPx > 0) {
+		return fmt.Errorf("term_w_px and term_h_px must both be set")
+	}
+	if o.TermWPx < 0 || o.TermHPx < 0 {
+		return fmt.Errorf("term dimensions must be non-negative")
+	}
+	if o.TermWPx > 10000 || o.TermHPx > 10000 {
+		return fmt.Errorf("term dimensions too large")
 	}
 	if o.Theme == "" {
 		o.Theme = "dark"
