@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/newtosh/tuile/internal/version"
 	tuileweb "github.com/newtosh/tuile/web"
 )
 
@@ -16,6 +17,7 @@ func (s *Server) registerStaticRoutes() {
 	})
 	s.mux.HandleFunc("GET /view", s.handleView)
 	s.mux.HandleFunc("GET /view/", s.handleView)
+	s.mux.HandleFunc("GET /version", s.handleVersion)
 	s.mux.HandleFunc("GET /", s.handleRootRedirect)
 }
 
@@ -43,7 +45,22 @@ func (s *Server) handleView(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	_, _ = w.Write(data)
+	html := strings.ReplaceAll(string(data), "__TUILE_VERSION__", formatVersionLabel(version.Version))
+	_, _ = w.Write([]byte(html))
+}
+
+func (s *Server) handleVersion(w http.ResponseWriter, _ *http.Request) {
+	writeJSON(w, http.StatusOK, map[string]string{"version": version.Version})
+}
+
+func formatVersionLabel(v string) string {
+	if v == "" || v == "dev" {
+		return "dev"
+	}
+	if strings.HasPrefix(v, "v") {
+		return v
+	}
+	return "v" + v
 }
 
 // DefaultDevOrigins returns browser Origin values for local viewer dev (R10 dev ergonomics).

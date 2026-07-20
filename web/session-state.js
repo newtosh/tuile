@@ -13,6 +13,17 @@ export function saveAckMap(map, storage = localStorage, key = ACK_STORAGE_KEY) {
   storage.setItem(key, JSON.stringify(map));
 }
 
+export function mergeSessionsWithConnected(sessions, connected) {
+  if (!connected?.session_id) {
+    return sessions;
+  }
+  const list = Array.isArray(sessions) ? sessions : [];
+  if (list.some((sess) => sess.session_id === connected.session_id)) {
+    return list;
+  }
+  return [...list, connected];
+}
+
 export function activeSessionIDSet(sessions) {
   const ids = new Set();
   for (const sess of sessions) {

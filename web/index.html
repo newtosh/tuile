@@ -24,10 +24,23 @@
           <rect x="6" y="17" width="9" height="9" rx="1.5" fill="var(--accent)" opacity="0.82" />
           <rect x="17" y="17" width="9" height="9" rx="1.5" fill="var(--accent)" />
         </svg>
-        <h1>Tuile</h1>
+        <div class="header-title">
+          <h1>Tuile</h1>
+          <span class="app-version" id="app-version">__TUILE_VERSION__</span>
+        </div>
         <span id="mode-badge" class="badge">connecting</span>
       </div>
       <div class="header-actions">
+        <button
+          id="export-toggle"
+          type="button"
+          class="icon-btn"
+          title="Export screenshot"
+          aria-haspopup="dialog"
+          aria-controls="export-dialog"
+        >
+          <span id="export-toggle-icon" class="icon-slot"></span>
+        </button>
         <div class="settings-wrap">
           <button
             id="settings-toggle"
@@ -183,13 +196,100 @@
           <span id="zoom-in-icon" class="icon-slot"></span>
         </button>
       </div>
-      <div id="status-message" class="status-message">Initializing…</div>
+      <div class="status-bar-end">
+        <div id="status-message" class="status-message">Initializing…</div>
+        <a
+          id="github-link"
+          class="status-github"
+          href="https://github.com/newtosh/tuile"
+          target="_blank"
+          rel="noopener noreferrer"
+          title="newtosh/tuile on GitHub"
+        >
+          <span id="github-link-icon" class="icon-slot"></span>
+          <span class="status-github-label">newtosh/tuile</span>
+        </a>
+      </div>
     </footer>
+
+    <dialog id="export-dialog" class="export-dialog">
+      <form id="export-form" method="dialog" class="export-form">
+        <header class="export-header">
+          <h2>Export screenshot</h2>
+          <button type="button" id="export-close" class="icon-btn" aria-label="Close">
+            <span id="export-close-icon" class="icon-slot"></span>
+          </button>
+        </header>
+        <label class="export-field">
+          <span>Chrome</span>
+          <select id="export-chrome">
+            <option value="minimal">Tuile viewer</option>
+            <option value="os-wireframe">OS wireframe</option>
+          </select>
+        </label>
+        <label class="export-field export-checkbox" id="export-grid-wrap">
+          <input id="export-show-grid" type="checkbox" checked />
+          <span>Show grid size</span>
+        </label>
+        <label class="export-field">
+          <span>Background</span>
+          <select id="export-background-mode">
+            <option value="preset">Preset</option>
+            <option value="transparent">Transparent</option>
+            <option value="custom">Custom image</option>
+          </select>
+        </label>
+        <label class="export-field" id="export-preset-wrap">
+          <span>Preset</span>
+          <select id="export-background-preset">
+            <option value="slate">Slate</option>
+            <option value="ink">Ink</option>
+            <option value="mist">Mist</option>
+            <option value="white">White</option>
+            <option value="sunset">Sunset</option>
+            <option value="ocean">Ocean</option>
+            <option value="forest">Forest</option>
+            <option value="midnight">Midnight</option>
+          </select>
+        </label>
+        <label class="export-field" id="export-custom-wrap" hidden>
+          <span>Background image</span>
+          <input id="export-background-file" type="file" accept="image/png,image/jpeg,image/webp" />
+        </label>
+        <div class="export-row">
+          <label class="export-field">
+            <span>Scale</span>
+            <select id="export-scale">
+              <option value="1">1x</option>
+              <option value="2">2x</option>
+            </select>
+          </label>
+          <label class="export-field">
+            <span>Format</span>
+            <select id="export-format">
+              <option value="png">PNG</option>
+              <option value="svg">SVG</option>
+            </select>
+          </label>
+        </div>
+        <label class="export-field">
+          <span>Title</span>
+          <input id="export-title" type="text" maxlength="120" placeholder="tuile" />
+        </label>
+        <p class="export-note">
+          For README and docs, avoid personal names or account-specific strings —
+          see <a href="https://github.com/newtosh/tuile/blob/main/CONTRIBUTING.md">CONTRIBUTING</a>.
+        </p>
+        <footer class="export-actions">
+          <button type="submit" id="export-download" class="menu-action primary">Download</button>
+        </footer>
+      </form>
+    </dialog>
 
     <script src="https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/lib/xterm.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@xterm/addon-fit@0.10.0/lib/addon-fit.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@xterm/addon-unicode11@0.8.0/lib/addon-unicode11.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@xterm/addon-webgl@0.18.0/lib/addon-webgl.js"></script>
-    <script type="module" src="/assets/app.js"></script>
+    <script type="module" src="/assets/app.js?v=__TUILE_VERSION__"></script>
   </body>
 </html>

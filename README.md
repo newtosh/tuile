@@ -77,6 +77,8 @@ The built-in UI at `http://127.0.0.1:7710/` lists active sessions, tails any PTY
 
 *Settings panel (gear icon, top right): pick **font** and **text size** for the terminal; toggle **enhanced rendering** (WebGL) for sharper Unicode and box-drawing; use **Take over** to send keystrokes from the browser, **Release** to hand control back to the agent, and **Reconnect** if the WebSocket drops. Sessions default to 120×36 — non-default sizes show as “resized” in the sidebar.*
 
+**Export screenshots** — use the image icon (next to settings) to open the export panel: pick wireframe chrome, background (transparent, preset gradient/solid, or custom image), scale (1x/2x), and PNG or SVG. The same options are available via `POST /v1/sessions/{id}/export`. When committing images to docs, follow [CONTRIBUTING.md](CONTRIBUTING.md) hygiene (no personal names or account-specific strings).
+
 ## Requirements
 
 - Go 1.26+
@@ -286,6 +288,7 @@ If you want a uniform grid across sessions, either resize each session to the sa
 | `DELETE` | `/v1/sessions/{id}` | bootstrap | Close session |
 | `GET` | `/v1/sessions/{id}/state` | session token | Compact summary: dims, cursor, tail text (`?format=plain\|text\|compact`, `?tail=N`) |
 | `GET` | `/v1/sessions/{id}/screen` | session token | Screen snapshot (`?since=`, `?detail=cells`, `?format=plain\|text\|compact`, `?tail=N`, `?region=y1:y2`) |
+| `POST` | `/v1/sessions/{id}/export` | session token | Composed screenshot (`application/json` options, or `multipart/form-data` with `background_image`) — returns PNG or SVG |
 | `POST` | `/v1/sessions/{id}/wait` | session token | Block until text match or version change (`format` in body: plain, text, compact) |
 | `GET` | `/v1/sessions/{id}/stream` | session token | SSE stream of PTY output |
 | `POST` | `/v1/sessions/{id}/input` | bootstrap or session | Write PTY input (returns `{"version"}`) |

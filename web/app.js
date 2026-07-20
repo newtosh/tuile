@@ -3,9 +3,12 @@ import { sessions as $sessions, activeSessionId as $activeSessionId, uiStatus, u
 import {
   ACK_STORAGE_KEY,
   loadAckMap,
+  mergeSessionsWithConnected,
   pruneClientSessionState,
   saveAckMap,
 } from "./session-state.js";
+import { composeExport, downloadBlob } from "./export-compositor.js";
+import { defaultExportOptions, exportFilename } from "./export-options.js";
 
 const params = new URLSearchParams(window.location.search);
 const BOOTSTRAP_KEY = "tuile_bootstrap";
@@ -27,11 +30,13 @@ const LOAD_TOTAL_TIMEOUT_MS = 25000;
 const LOAD_ATTACH_TIMEOUT_MS = 12000;
 const LOAD_WS_CONNECT_TIMEOUT_MS = 10000;
 const LOAD_SNAPSHOT_TIMEOUT_MS = 8000;
+const WS_LOAD_MAX_RETRIES = 4;
 const REFRESH_SPIN_MIN_MS = 450;
 const REFRESH_BUTTON_TIMEOUT_MS = 8000;
 const sessionCache = new Map();
 
 const badge = document.getElementById("mode-badge");
+const appVersionEl = document.getElementById("app-version");
 const statusBar = document.getElementById("status-bar");
 const statusMessage = document.getElementById("status-message");
 const zoomOutBtn = document.getElementById("zoom-out");
@@ -67,6 +72,8 @@ let token = params.get("token");
 let controlling = false;
 let ws = null;
 let resizeTimer = null;
+let wsLoadRetries = 0;
+let wsRetryTimer = null;
 let pollTimer = null;
 const DEFAULT_PTY_COLS = 120;
 const DEFAULT_PTY_ROWS = 36;
@@ -127,9 +134,47 @@ $sessions.subscribe((list) => {
 });
 
 mountIcon(document.getElementById("settings-toggle-icon"), "settings", { size: 18 });
+mountIcon(document.getElementById("export-toggle-icon"), "image", { size: 18 });
+mountIcon(document.getElementById("export-close-icon"), "x", { size: 18 });
+
+function formatVersionLabel(raw) {
+  const v = String(raw || "").trim();
+  if (!v || v === "__TUILE_VERSION__") {
+    return "";
+  }
+  if (v === "dev") {
+    return "dev";
+  }
+  return v.startsWith("v") ? v : `v${v}`;
+}
+
+async function initAppVersion() {
+  if (!appVersionEl) {
+    return;
+  }
+  let label = formatVersionLabel(appVersionEl.textContent);
+  if (!label) {
+    try {
+      const res = await fetch("/version");
+      if (res.ok) {
+        const body = await res.json();
+        label = formatVersionLabel(body.version);
+      }
+    } catch {
+      // offline or old server without /version
+    }
+  }
+  if (label) {
+    appVersionEl.textContent = label;
+    appVersionEl.hidden = false;
+  }
+}
+
+void initAppVersion();
 mountIcon(document.getElementById("webgl-info-icon"), "circle-help", { size: 14 });
 mountIcon(document.getElementById("refresh-sessions-icon"), "refresh-cw", { size: 16 });
 mountIcon(document.getElementById("bootstrap-save-icon"), "save", { size: 16 });
+mountIcon(document.getElementById("github-link-icon"), "github-logo", { size: 16 });
 mountIcon(document.getElementById("zoom-out-icon"), "zoom-out", { size: 14 });
 mountIcon(document.getElementById("zoom-in-icon"), "zoom-in", { size: 14 });
 for (const slot of document.querySelectorAll("[data-icon]")) {
@@ -372,7 +417,53 @@ function resetLoadingChrome() {
   loadingRetry.hidden = true;
 }
 
+function clearWSRetryTimer() {
+  if (wsRetryTimer) {
+    clearTimeout(wsRetryTimer);
+    wsRetryTimer = null;
+  }
+}
+
+function resetWSLoadRetries() {
+  wsLoadRetries = 0;
+  clearWSRetryTimer();
+}
+
+function canAutoReconnect() {
+  return Boolean(sessionId && bootstrapSecret && wsLoadRetries < WS_LOAD_MAX_RETRIES);
+}
+
+function scheduleWSReconnect() {
+  clearWSRetryTimer();
+  wsLoadRetries += 1;
+  const delay = Math.min(350 * wsLoadRetries, 2000);
+  const attemptMsg =
+    wsLoadRetries === 1
+      ? "Server restarted — reconnecting…"
+      : `Reconnecting… (${wsLoadRetries}/${WS_LOAD_MAX_RETRIES})`;
+  setMode("connecting");
+  setStatus(attemptMsg);
+  setSessionLoading(true, attemptMsg);
+  loadingRetry.hidden = true;
+  terminalLoading.classList.remove("is-error");
+  loadingMessage.classList.remove("is-error");
+  loadingSpinner.hidden = false;
+  wsRetryTimer = setTimeout(() => {
+    wsRetryTimer = null;
+    void attachToSession(sessionId, { force: true });
+  }, delay);
+}
+
+function retryOrFailSessionLoad(message) {
+  if (canAutoReconnect()) {
+    scheduleWSReconnect();
+    return;
+  }
+  failSessionLoad(message, { retry: true });
+}
+
 function failSessionLoad(message, { retry = true } = {}) {
+  clearWSRetryTimer();
   clearLoadTimeouts();
   clearSyncPoll();
   clearTimeout(syncFallbackTimer);
@@ -449,6 +540,42 @@ function syncSessions(list) {
     );
   }
   $sessions.set(list);
+}
+
+async function fetchConnectedSessionMeta() {
+  if (!sessionId || !token) {
+    return null;
+  }
+  try {
+    const res = await fetch(apiURL(`/v1/sessions/${sessionId}`), { headers: authHeaders() });
+    if (!res.ok) {
+      return null;
+    }
+    return await res.json();
+  } catch {
+    return null;
+  }
+}
+
+function connectedSessionFallback() {
+  if (!sessionId) {
+    return null;
+  }
+  return {
+    session_id: sessionId,
+    workspace: "",
+    cols: ptyCols,
+    rows: ptyRows,
+    controller: "agent",
+  };
+}
+
+async function sessionsWithConnected(list = []) {
+  if (!sessionId || !token) {
+    return list;
+  }
+  const meta = (await fetchConnectedSessionMeta()) || connectedSessionFallback();
+  return mergeSessionsWithConnected(list, meta);
 }
 
 function isDefaultDims(cols, rows) {
@@ -1061,6 +1188,7 @@ function finishInitialSync() {
   if (!awaitingInitialSync) {
     return;
   }
+  resetWSLoadRetries();
   awaitingInitialSync = false;
   clearSyncPoll();
   clearTimeout(syncFallbackTimer);
@@ -1195,6 +1323,7 @@ function disconnectWS() {
   clearTimeout(wsConnectTimeoutTimer);
   wsConnectTimeoutTimer = null;
   clearSyncPoll();
+  clearWSRetryTimer();
   if (ws) {
     ws.onclose = null;
     ws.close();
@@ -1244,10 +1373,11 @@ function connectWS() {
     sock.onclose = null;
     sock.onerror = null;
     sock.close();
-    failSessionLoad("Could not connect to session — check that tuile is running.", { retry: true });
+    retryOrFailSessionLoad("Could not connect to session — check that tuile is running.");
   }, LOAD_WS_CONNECT_TIMEOUT_MS);
 
   ws.onopen = () => {
+    resetWSLoadRetries();
     clearTimeout(wsConnectTimeoutTimer);
     wsConnectTimeoutTimer = null;
     setMode(controlling ? "control" : "observe", controlling ? "control" : "observe");
@@ -1295,10 +1425,7 @@ function connectWS() {
   };
 
   ws.onerror = () => {
-    if (uiBadge.get().text === "error") {
-      return;
-    }
-    failSessionLoad("WebSocket error — check token, Origin allowlist, and server.", { retry: true });
+    // onclose follows with the actionable failure path.
   };
 
   ws.onclose = () => {
@@ -1310,7 +1437,7 @@ function connectWS() {
       return;
     }
     if (awaitingInitialSync || sessionLoading) {
-      failSessionLoad("Connection closed before the session finished loading.", { retry: true });
+      retryOrFailSessionLoad("Connection closed before the session finished loading.");
       return;
     }
     setMode("disconnected");
@@ -1407,13 +1534,16 @@ async function attachToSession(id, { force = false } = {}) {
 
 async function refreshSessions({ autoAttach = true } = {}) {
   if (!bootstrapSecret) {
-    syncSessions([]);
+    const list = await sessionsWithConnected([]);
+    syncSessions(list);
     if (!sessionId || !token) {
       showPlaceholder(true);
       setMode("setup");
       setStatus("Enter the bootstrap secret printed by tuile serve.");
+    } else if (list.length > 0) {
+      setStatus("Connected — enter bootstrap secret to discover other sessions.");
     }
-    return false;
+    return list.length > 0;
   }
 
   try {
@@ -1426,7 +1556,7 @@ async function refreshSessions({ autoAttach = true } = {}) {
       return false;
     }
     const body = await res.json();
-    syncSessions(body.sessions || []);
+    syncSessions(await sessionsWithConnected(body.sessions || []));
 
     const stillActive = knownSessions.some((s) => s.session_id === sessionId);
     if (sessionId && stillActive) {
@@ -1608,6 +1738,7 @@ reconnectBtn.addEventListener("click", () => {
 });
 
 loadingRetry.addEventListener("click", () => {
+  resetWSLoadRetries();
   if (sessionId) {
     attachToSession(sessionId, { force: true });
   } else {
@@ -1739,25 +1870,149 @@ document.addEventListener("keydown", (ev) => {
 
 updateZoomControl();
 
+const exportDialog = document.getElementById("export-dialog");
+const exportForm = document.getElementById("export-form");
+const exportToggle = document.getElementById("export-toggle");
+const exportClose = document.getElementById("export-close");
+const exportBgMode = document.getElementById("export-background-mode");
+const exportPresetWrap = document.getElementById("export-preset-wrap");
+const exportCustomWrap = document.getElementById("export-custom-wrap");
+const exportGridWrap = document.getElementById("export-grid-wrap");
+const exportShowGrid = document.getElementById("export-show-grid");
+const exportChrome = document.getElementById("export-chrome");
+
+function viewerExportDefaults() {
+  const sess = knownSessions.find((s) => s.session_id === sessionId);
+  const selected = Number.parseInt(fontSizeSelect?.value, 10);
+  const fontSizePx =
+    fontSizeMode === "auto"
+      ? term?.options?.fontSize || observeBaseFont || 14
+      : Number.isFinite(selected)
+        ? selected
+        : 14;
+  return defaultExportOptions({
+    fontFamily: fontSelect?.value,
+    fontSizePx,
+    title: sess?.cli || sess?.label || "tuile",
+  });
+}
+
+function syncExportBackgroundFields() {
+  const mode = exportBgMode?.value || "preset";
+  if (exportPresetWrap) {
+    exportPresetWrap.hidden = mode !== "preset";
+  }
+  if (exportCustomWrap) {
+    exportCustomWrap.hidden = mode !== "custom";
+  }
+  if (exportGridWrap) {
+    exportGridWrap.hidden = exportChrome?.value === "os-wireframe";
+  }
+}
+
+function openExportDialog() {
+  if (!exportDialog || !sessionId) {
+    setStatus("Attach to a session before exporting.");
+    return;
+  }
+  const defaults = viewerExportDefaults();
+  document.getElementById("export-chrome").value = defaults.chrome_preset;
+  exportBgMode.value = defaults.background_mode;
+  document.getElementById("export-background-preset").value = defaults.background_preset;
+  document.getElementById("export-scale").value = String(defaults.scale);
+  document.getElementById("export-format").value = defaults.format;
+  document.getElementById("export-title").value = defaults.title;
+  if (exportShowGrid) {
+    exportShowGrid.checked = defaults.show_grid_size;
+  }
+  syncExportBackgroundFields();
+  exportDialog.showModal();
+}
+
+exportToggle?.addEventListener("click", () => openExportDialog());
+exportClose?.addEventListener("click", () => exportDialog?.close());
+exportBgMode?.addEventListener("change", syncExportBackgroundFields);
+exportChrome?.addEventListener("change", syncExportBackgroundFields);
+
+exportForm?.addEventListener("submit", async (ev) => {
+  ev.preventDefault();
+  if (!sessionId || !token) {
+    setStatus("No active session to export.");
+    return;
+  }
+  const opts = {
+    ...viewerExportDefaults(),
+    chrome_preset: document.getElementById("export-chrome").value,
+    background_mode: exportBgMode.value,
+    background_preset: document.getElementById("export-background-preset").value,
+    scale: Number(document.getElementById("export-scale").value),
+    format: document.getElementById("export-format").value,
+    title: document.getElementById("export-title").value || "tuile",
+    show_grid_size: exportChrome?.value !== "os-wireframe" && Boolean(exportShowGrid?.checked),
+  };
+  const bgFile = document.getElementById("export-background-file")?.files?.[0] || null;
+  try {
+    setStatus("Exporting screenshot…");
+    const res = await fetchWithTimeout(
+      apiURL(`/v1/sessions/${sessionId}/screen?replay=1`),
+      { headers: authHeaders() },
+      LOAD_SNAPSHOT_TIMEOUT_MS
+    );
+    if (!res.ok) {
+      throw new Error(`screen fetch failed: ${res.status}`);
+    }
+    const body = await res.json();
+    const replayBytes = body.replay_b64 ? decodeReplayB64(body.replay_b64) : null;
+    const grid = measureTerminalGrid();
+    const blob = await composeExport({
+      screen: body.screen,
+      replayBytes,
+      opts,
+      backgroundFile: bgFile,
+      viewerMetrics: {
+        termW: grid.width,
+        termH: grid.height,
+        cols: ptyCols,
+        rows: ptyRows,
+        fontSizePx: term?.options?.fontSize,
+      },
+    });
+    const ext = opts.format === "svg" ? "svg" : "png";
+    downloadBlob(blob, exportFilename(opts.title, opts.format));
+    setStatus("Export downloaded.");
+    exportDialog?.close();
+  } catch (err) {
+    setStatus(`Export failed: ${err.message}`);
+  }
+});
+
 document.fonts?.ready?.then(() => scheduleTerminalLayout());
 
 async function boot() {
   startPolling();
-  if (sessionId && token) {
-    sessionCache.set(sessionId, { token, cols: ptyCols, rows: ptyRows });
+  const targetSession = sessionId;
+  if (targetSession) {
     await refreshSessions({ autoAttach: false });
-    const sess = knownSessions.find((s) => s.session_id === sessionId);
-    if (sess) {
-      ptyCols = sess.cols || ptyCols;
-      ptyRows = sess.rows || ptyRows;
+    if (!sessionId) {
+      await refreshSessions({ autoAttach: true });
+      return;
     }
-    showPlaceholder(false);
-    connectWS();
-    return;
-  }
-  if (sessionId && !token) {
+    if (bootstrapSecret) {
+      await attachToSession(sessionId, { force: true });
+      return;
+    }
+    if (token) {
+      sessionCache.set(sessionId, { token, cols: ptyCols, rows: ptyRows });
+      const sess = knownSessions.find((s) => s.session_id === sessionId);
+      if (sess) {
+        ptyCols = sess.cols || ptyCols;
+        ptyRows = sess.rows || ptyRows;
+      }
+      showPlaceholder(false);
+      connectWS();
+      return;
+    }
     await attachToSession(sessionId);
-    await refreshSessions({ autoAttach: false });
     return;
   }
   await refreshSessions({ autoAttach: true });

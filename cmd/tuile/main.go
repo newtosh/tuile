@@ -15,6 +15,7 @@ import (
 	"github.com/newtosh/tuile/internal/config"
 	"github.com/newtosh/tuile/internal/serve"
 	"github.com/newtosh/tuile/internal/session"
+	"github.com/newtosh/tuile/internal/version"
 )
 
 func main() {
@@ -25,7 +26,7 @@ func main() {
 
 	switch os.Args[1] {
 	case "version":
-		fmt.Println(Version)
+		fmt.Println(version.Version)
 	case "session":
 		if len(os.Args) < 3 {
 			usage()

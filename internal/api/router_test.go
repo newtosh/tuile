@@ -142,8 +142,23 @@ func TestListAndAttachSessions(t *testing.T) {
 	getReq.SetPathValue("id", created.SessionID)
 	getRec := httptest.NewRecorder()
 	srv.Handler().ServeHTTP(getRec, getReq)
-	if getRec.Code != http.StatusForbidden {
-		t.Fatalf("viewer token should not grant agent metadata, got %d", getRec.Code)
+	if getRec.Code != http.StatusOK {
+		t.Fatalf("viewer token should grant session metadata, got %d body=%s", getRec.Code, getRec.Body.String())
+	}
+	var viewed struct {
+		SessionID                string `json:"session_id"`
+		Workspace                string `json:"workspace"`
+		CreatedAt                string `json:"created_at"`
+		LastMeaningfulActivityAt string `json:"last_meaningful_activity_at"`
+	}
+	if err := json.Unmarshal(getRec.Body.Bytes(), &viewed); err != nil {
+		t.Fatal(err)
+	}
+	if viewed.SessionID != created.SessionID || viewed.Workspace == "" {
+		t.Fatalf("viewer metadata = %+v, want session %s", viewed, created.SessionID)
+	}
+	if viewed.CreatedAt == "" || viewed.LastMeaningfulActivityAt == "" {
+		t.Fatalf("expected activity timestamps in viewer metadata: %+v", viewed)
 	}
 
 	screenReq := httptest.NewRequest(http.MethodGet, "/v1/sessions/"+created.SessionID+"/screen", nil)

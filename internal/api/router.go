@@ -38,6 +38,7 @@ func NewServer(cfg config.Server, mgr *session.Manager, tokens *auth.Store, boot
 	s.mux.HandleFunc("GET /v1/sessions/{id}", s.handleGetSession)
 	s.mux.HandleFunc("GET /v1/sessions/{id}/ws", s.handleSessionWS)
 	s.registerHeadlessRoutes()
+	s.registerExportRoutes()
 	s.registerStaticRoutes()
 	return s
 }
@@ -214,15 +215,8 @@ func (s *Server) handleCreateSession(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-type sessionView struct {
-	SessionID string `json:"session_id"`
-	Workspace string `json:"workspace"`
-	Cols      int    `json:"cols"`
-	Rows      int    `json:"rows"`
-}
-
 func (s *Server) handleGetSession(w http.ResponseWriter, r *http.Request) {
-	claims, err := s.authorizeSession(r, auth.ScopeAgentRead)
+	claims, err := s.authorizeSessionAny(r, auth.ScopeAgentRead, auth.ScopeHumanView)
 	if err != nil {
 		writeAuthError(w, err)
 		return
@@ -241,11 +235,15 @@ func (s *Server) handleGetSession(w http.ResponseWriter, r *http.Request) {
 	}
 
 	cols, rows := sess.PTY.Winsize()
-	writeJSON(w, http.StatusOK, sessionView{
-		SessionID: sess.ID,
-		Workspace: sess.Workspace,
-		Cols:      cols,
-		Rows:      rows,
+	writeJSON(w, http.StatusOK, session.SessionInfo{
+		SessionID:                sess.ID,
+		Workspace:                sess.Workspace,
+		CLI:                      sess.CLIName,
+		Cols:                     cols,
+		Rows:                     rows,
+		Controller:               string(sess.Access.Controller()),
+		CreatedAt:                sess.CreatedAt,
+		LastMeaningfulActivityAt: sess.LastMeaningfulActivityAt,
 	})
 }
 
