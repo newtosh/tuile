@@ -29,7 +29,7 @@ import urllib.request
 
 sid, token, base, script = sys.argv[1:5]
 b64 = base64.b64encode(script.encode()).decode()
-body = json.dumps({"input": f"echo {b64} | base64 -d | bash\n"}).encode()
+body = json.dumps({"input": f"sleep 0.3; echo {b64} | base64 -d | bash\n"}).encode()
 req = urllib.request.Request(
     f"{base}/v1/sessions/{sid}/input",
     data=body,
@@ -45,6 +45,7 @@ PY
 
 read -r -d '' DEMO_SCRIPT <<'EOF' || true
 #!/usr/bin/env bash
+export PYENV_SKIP_REHASH=1
 export TERM=xterm-256color
 cd /tmp
 clear
@@ -67,4 +68,4 @@ fi
 EOF
 
 start_session "Theme demo" "$DEMO_SCRIPT"
-start_session "Plain shell"
+start_session "Plain shell" "export PYENV_SKIP_REHASH=1; exec ${SHELL:-/usr/bin/zsh} -i"

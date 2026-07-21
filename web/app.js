@@ -1,4 +1,4 @@
-import { mountIcon } from "./icons.js";
+import { initViewerIcons, mountIcon } from "./icons.js";
 import { sessions as $sessions, activeSessionId as $activeSessionId, uiStatus, uiBadge } from "./state.js";
 import {
   defaultTerminalThemeIdForAppearance,
@@ -19,9 +19,17 @@ import {
 import {
   ACK_STORAGE_KEY,
   loadAckMap,
+  mergeSessionsWithConnected,
   pruneClientSessionState,
   saveAckMap,
 } from "./session-state.js";
+import { defaultExportOptions, exportFilename } from "./export-options.js";
+import { installLigatures } from "./ligatures.js";
+
+initViewerIcons();
+if (document.readyState === "loading") {
+  document.addEventListener("DOMContentLoaded", () => initViewerIcons(), { once: true });
+}
 
 const params = new URLSearchParams(window.location.search);
 const BOOTSTRAP_KEY = "tuile_bootstrap";
@@ -43,11 +51,13 @@ const LOAD_TOTAL_TIMEOUT_MS = 25000;
 const LOAD_ATTACH_TIMEOUT_MS = 12000;
 const LOAD_WS_CONNECT_TIMEOUT_MS = 10000;
 const LOAD_SNAPSHOT_TIMEOUT_MS = 8000;
+const WS_LOAD_MAX_RETRIES = 4;
 const REFRESH_SPIN_MIN_MS = 450;
 const REFRESH_BUTTON_TIMEOUT_MS = 8000;
 const sessionCache = new Map();
 
 const badge = document.getElementById("mode-badge");
+const appVersionEl = document.getElementById("app-version");
 const statusBar = document.getElementById("status-bar");
 const statusMessage = document.getElementById("status-message");
 const zoomOutBtn = document.getElementById("zoom-out");
@@ -90,6 +100,8 @@ let token = params.get("token");
 let controlling = false;
 let ws = null;
 let resizeTimer = null;
+let wsLoadRetries = 0;
+let wsRetryTimer = null;
 let pollTimer = null;
 const DEFAULT_PTY_COLS = 120;
 const DEFAULT_PTY_ROWS = 36;
@@ -108,13 +120,13 @@ let wsWriteChain = Promise.resolve();
 const FONT_SIZE_KEY = "tuile_font_size";
 const DEFAULT_FONT_SIZE = 20;
 let observeBaseFont = DEFAULT_FONT_SIZE;
-const OBSERVE_FONT_MIN = 12;
+const OBSERVE_FONT_MIN = 14;
 const OBSERVE_FONT_MAX = 64;
 const OBSERVE_VIEW_INSET = 4;
 const GRID_FRAME_PAD = 14;
 const ZOOM_KEY = "tuile_zoom";
 const ZOOM_MIN = 0.5;
-const ZOOM_MAX = 1.5;
+const ZOOM_MAX = 1;
 const ZOOM_STEP = 0.05;
 const WEBGL_KEY = "tuile_webgl";
 const LEGACY_LIGATURES_KEY = "tuile_ligatures";
@@ -134,12 +146,12 @@ if (params.get("bootstrap")) {
   window.history.replaceState(null, "", next);
 }
 
-bootstrapInput.value = bootstrapSecret;
-fontSizeSelect.value = fontSizeMode;
+bootstrapInput && (bootstrapInput.value = bootstrapSecret);
+fontSizeSelect && (fontSizeSelect.value = fontSizeMode);
 observeBaseFont = fontSizeMode === "auto" ? DEFAULT_FONT_SIZE : parseInt(fontSizeMode, 10) || DEFAULT_FONT_SIZE;
 
-sessionSortSelect.value = loadSessionSort();
-sessionInactiveMins.value = String(getInactiveMins());
+sessionSortSelect && (sessionSortSelect.value = loadSessionSort());
+sessionInactiveMins && (sessionInactiveMins.value = String(getInactiveMins()));
 
 function loadAppAppearancePreference() {
   const stored =
@@ -397,16 +409,40 @@ $sessions.subscribe((list) => {
   renderSessionList(list);
 });
 
-mountIcon(document.getElementById("settings-toggle-icon"), "settings", { size: 18 });
-mountIcon(document.getElementById("webgl-info-icon"), "circle-help", { size: 14 });
-mountIcon(document.getElementById("refresh-sessions-icon"), "refresh-cw", { size: 16 });
-mountIcon(document.getElementById("bootstrap-save-icon"), "save", { size: 16 });
-mountIcon(document.getElementById("zoom-out-icon"), "zoom-out", { size: 14 });
-mountIcon(document.getElementById("zoom-in-icon"), "zoom-in", { size: 14 });
-mountIcon(appearanceHintIcon, "info", { size: 16 });
-for (const slot of document.querySelectorAll("[data-icon]")) {
-  mountIcon(slot, slot.dataset.icon, { size: 16 });
+function formatVersionLabel(raw) {
+  const v = String(raw || "").trim();
+  if (!v || v === "__TUILE_VERSION__") {
+    return "";
+  }
+  if (v === "dev") {
+    return "dev";
+  }
+  return v.startsWith("v") ? v : `v${v}`;
 }
+
+async function initAppVersion() {
+  if (!appVersionEl) {
+    return;
+  }
+  let label = formatVersionLabel(appVersionEl.textContent);
+  if (!label) {
+    try {
+      const res = await fetch("/version");
+      if (res.ok) {
+        const body = await res.json();
+        label = formatVersionLabel(body.version);
+      }
+    } catch {
+      // offline or old server without /version
+    }
+  }
+  if (label) {
+    appVersionEl.textContent = label;
+    appVersionEl.hidden = false;
+  }
+}
+
+void initAppVersion();
 
 function setSettingsOpen(open) {
   settingsMenu.hidden = !open;
@@ -440,6 +476,7 @@ const term = new Terminal({
   fontSize: observeBaseFont,
   lineHeight: 1,
   fontFamily: fontSelect?.value || initialFontFamily,
+  letterSpacing: 0,
   scrollback: 5000,
   customGlyphs: true,
   drawBoldTextInBrightColors: true,
@@ -451,11 +488,14 @@ const term = new Terminal({
 const fitAddon = new FitAddon.FitAddon();
 const unicode11Addon = new Unicode11Addon.Unicode11Addon();
 let webglAddon = null;
+let canvasAddon = null;
+let removeLigatures = null;
 
 term.loadAddon(fitAddon);
 term.loadAddon(unicode11Addon);
 term.unicode.activeVersion = "11";
 term.open(terminalWrap);
+syncTerminalInputMode();
 
 function readWebGLPref() {
   if (localStorage.getItem(WEBGL_KEY) !== null) {
@@ -464,7 +504,7 @@ function readWebGLPref() {
   if (localStorage.getItem(LEGACY_LIGATURES_KEY) !== null) {
     return localStorage.getItem(LEGACY_LIGATURES_KEY) === "1";
   }
-  return true;
+  return false;
 }
 
 function setWebGLClass(enabled) {
@@ -482,9 +522,38 @@ function updateWebGLControl() {
   setWebGLRenderer(webglToggle.checked);
 }
 
+function refreshLigatures() {
+  removeLigatures?.();
+  removeLigatures = null;
+  if (!webglAddon && canvasAddon) {
+    removeLigatures = installLigatures(term);
+    term.refresh(0, term.rows - 1);
+  }
+}
+
+function setCanvasRenderer(enabled) {
+  if (enabled && !canvasAddon && !webglAddon && window.CanvasAddon) {
+    try {
+      canvasAddon = new CanvasAddon.CanvasAddon();
+      term.loadAddon(canvasAddon);
+      term.refresh(0, term.rows - 1);
+    } catch (err) {
+      setStatus(`Canvas renderer unavailable: ${err.message}`);
+    }
+    return;
+  }
+  if (!enabled && canvasAddon) {
+    canvasAddon.dispose();
+    canvasAddon = null;
+  }
+}
+
 function setWebGLRenderer(enabled) {
   if (enabled && !webglAddon && window.WebglAddon) {
     try {
+      removeLigatures?.();
+      removeLigatures = null;
+      setCanvasRenderer(false);
       webglAddon = new WebglAddon.WebglAddon();
       term.loadAddon(webglAddon);
       webglAddon.onContextLoss(() => {
@@ -500,13 +569,17 @@ function setWebGLRenderer(enabled) {
       webglToggle.checked = false;
       webglToggle.setAttribute("aria-checked", "false");
       setWebGLClass(false);
+      refreshLigatures();
     }
     return;
   }
   if (!enabled && webglAddon) {
     webglAddon.dispose();
     webglAddon = null;
-    term.refresh(0, term.rows - 1);
+  }
+  if (!enabled) {
+    setCanvasRenderer(true);
+    refreshLigatures();
   }
 }
 
@@ -622,7 +695,53 @@ function resetLoadingChrome() {
   loadingRetry.hidden = true;
 }
 
+function clearWSRetryTimer() {
+  if (wsRetryTimer) {
+    clearTimeout(wsRetryTimer);
+    wsRetryTimer = null;
+  }
+}
+
+function resetWSLoadRetries() {
+  wsLoadRetries = 0;
+  clearWSRetryTimer();
+}
+
+function canAutoReconnect() {
+  return Boolean(sessionId && bootstrapSecret && wsLoadRetries < WS_LOAD_MAX_RETRIES);
+}
+
+function scheduleWSReconnect() {
+  clearWSRetryTimer();
+  wsLoadRetries += 1;
+  const delay = Math.min(350 * wsLoadRetries, 2000);
+  const attemptMsg =
+    wsLoadRetries === 1
+      ? "Server restarted — reconnecting…"
+      : `Reconnecting… (${wsLoadRetries}/${WS_LOAD_MAX_RETRIES})`;
+  setMode("connecting");
+  setStatus(attemptMsg);
+  setSessionLoading(true, attemptMsg);
+  loadingRetry.hidden = true;
+  terminalLoading.classList.remove("is-error");
+  loadingMessage.classList.remove("is-error");
+  loadingSpinner.hidden = false;
+  wsRetryTimer = setTimeout(() => {
+    wsRetryTimer = null;
+    void attachToSession(sessionId, { force: true });
+  }, delay);
+}
+
+function retryOrFailSessionLoad(message) {
+  if (canAutoReconnect()) {
+    scheduleWSReconnect();
+    return;
+  }
+  failSessionLoad(message, { retry: true });
+}
+
 function failSessionLoad(message, { retry = true } = {}) {
+  clearWSRetryTimer();
   clearLoadTimeouts();
   clearSyncPoll();
   clearTimeout(syncFallbackTimer);
@@ -699,6 +818,42 @@ function syncSessions(list) {
     );
   }
   $sessions.set(list);
+}
+
+async function fetchConnectedSessionMeta() {
+  if (!sessionId || !token) {
+    return null;
+  }
+  try {
+    const res = await fetch(apiURL(`/v1/sessions/${sessionId}`), { headers: authHeaders() });
+    if (!res.ok) {
+      return null;
+    }
+    return await res.json();
+  } catch {
+    return null;
+  }
+}
+
+function connectedSessionFallback() {
+  if (!sessionId) {
+    return null;
+  }
+  return {
+    session_id: sessionId,
+    workspace: "",
+    cols: ptyCols,
+    rows: ptyRows,
+    controller: "agent",
+  };
+}
+
+async function sessionsWithConnected(list = []) {
+  if (!sessionId || !token) {
+    return list;
+  }
+  const meta = (await fetchConnectedSessionMeta()) || connectedSessionFallback();
+  return mergeSessionsWithConnected(list, meta);
 }
 
 function isDefaultDims(cols, rows) {
@@ -952,6 +1107,7 @@ async function closeSession(id) {
     showPlaceholder(true);
     setMode("waiting");
     setStatus("Session closed — select another or wait for a new one.");
+    syncExportToggle();
   }
 }
 
@@ -1110,6 +1266,25 @@ function clearObserveGridInlineSizes() {
   }
 }
 
+function applyObserveGridInlineSizes(width, height) {
+  const termEl = terminalElement();
+  if (!termEl || !width || !height) {
+    return;
+  }
+  const pxW = `${width}px`;
+  const pxH = `${height}px`;
+  termEl.style.width = pxW;
+  termEl.style.height = pxH;
+  for (const sel of [".xterm-viewport", ".xterm-screen", "canvas"]) {
+    const el = termEl.querySelector(sel);
+    if (!el) {
+      continue;
+    }
+    el.style.width = pxW;
+    el.style.height = pxH;
+  }
+}
+
 function hideGridFrame() {
   if (terminalGridFrame) {
     terminalGridFrame.hidden = true;
@@ -1119,15 +1294,22 @@ function hideGridFrame() {
   }
 }
 
-function updateGridFrame() {
+function observeZoomScale() {
+  return observeZoom < 1 - 0.001 ? observeZoom : 1;
+}
+
+function updateGridFrame(layout = null) {
   if (!terminalGridFrame || controlling || !terminalWrap.classList.contains("observe-mode")) {
     hideGridFrame();
     return;
   }
   const grid = measureTerminalGrid();
   const termEl = terminalElement();
-  const width = Math.max(grid.width, termEl?.offsetWidth ?? 0);
-  const height = Math.max(grid.height, termEl?.offsetHeight ?? 0);
+  const baseW = layout?.width ?? Math.max(grid.width, termEl?.offsetWidth ?? 0);
+  const baseH = layout?.height ?? Math.max(grid.height, termEl?.offsetHeight ?? 0);
+  const zoom = layout?.zoom ?? observeZoomScale();
+  const width = baseW * zoom;
+  const height = baseH * zoom;
   if (!width || !height) {
     hideGridFrame();
     return;
@@ -1135,8 +1317,8 @@ function updateGridFrame() {
   const inset = OBSERVE_VIEW_INSET;
   const viewW = terminalWrap.clientWidth - inset * 2;
   const viewH = terminalWrap.clientHeight - inset * 2;
-  const left = inset + Math.max(0, (viewW - width) / 2);
-  const top = inset + Math.max(0, (viewH - height) / 2);
+  const left = inset + (viewW - width) / 2;
+  const top = inset + (viewH - height) / 2;
   const frameLeft = left - GRID_FRAME_PAD;
   const frameTop = top - GRID_FRAME_PAD;
   const frameWidth = width + GRID_FRAME_PAD * 2;
@@ -1161,24 +1343,42 @@ function positionObserveTerminal() {
   if (!termEl) {
     return;
   }
-  const inset = OBSERVE_VIEW_INSET;
-  const viewW = terminalWrap.clientWidth - inset * 2;
-  const viewH = terminalWrap.clientHeight - inset * 2;
 
-  termEl.style.transform = "";
-  clearObserveGridInlineSizes();
-  term.refresh(0, term.rows - 1);
+  const layoutOnce = () => {
+    const inset = OBSERVE_VIEW_INSET;
+    const viewW = terminalWrap.clientWidth - inset * 2;
+    const viewH = terminalWrap.clientHeight - inset * 2;
+    const zoom = observeZoomScale();
 
-  const grid = measureTerminalGrid();
-  const width = Math.max(grid.width, termEl.offsetWidth);
-  const height = Math.max(grid.height, termEl.offsetHeight);
-  if (!width || !height) {
-    return;
-  }
+    clearObserveGridInlineSizes();
+    term.refresh(0, term.rows - 1);
 
-  termEl.style.marginLeft = `${inset + Math.max(0, (viewW - width) / 2)}px`;
-  termEl.style.marginTop = `${inset + Math.max(0, (viewH - height) / 2)}px`;
-  updateGridFrame();
+    const grid = measureTerminalGrid();
+    const width = Math.max(grid.width, termEl.offsetWidth);
+    const height = Math.max(grid.height, termEl.offsetHeight);
+    if (!width || !height) {
+      return;
+    }
+
+    // Canvas renderer has no DOM row layout; pin grid metrics so the terminal is visible.
+    applyObserveGridInlineSizes(width, height);
+
+    const visualW = width * zoom;
+    const visualH = height * zoom;
+    if (zoom < 1) {
+      termEl.style.transform = `scale(${zoom})`;
+      termEl.style.transformOrigin = "0 0";
+    } else {
+      termEl.style.transform = "";
+      termEl.style.transformOrigin = "";
+    }
+    termEl.style.marginLeft = `${inset + (viewW - visualW) / 2}px`;
+    termEl.style.marginTop = `${inset + (viewH - visualH) / 2}px`;
+    updateGridFrame({ width, height, zoom });
+  };
+
+  layoutOnce();
+  requestAnimationFrame(layoutOnce);
 }
 
 function maxFontForTarget(targetW, targetH, { cap } = {}) {
@@ -1207,29 +1407,12 @@ function fitObserveLayout() {
   const viewW = Math.max(1, terminalWrap.clientWidth - inset * 2);
   const viewH = Math.max(1, terminalWrap.clientHeight - inset * 2);
 
-  let targetW = viewW;
-  let targetH = viewH;
-  if (observeZoom < 1) {
-    targetW = viewW * observeZoom;
-    targetH = viewH * observeZoom;
-  }
+  const preferredCap =
+    fontSizeMode === "auto"
+      ? OBSERVE_FONT_MAX
+      : parseInt(fontSizeMode, 10) || DEFAULT_FONT_SIZE;
 
-  let best;
-  if (fontSizeMode === "auto") {
-    best = maxFontForTarget(targetW, targetH);
-    if (observeZoom > 1) {
-      const boosted = Math.min(
-        OBSERVE_FONT_MAX,
-        maxFontForTarget(viewW, viewH, { cap: Math.floor(best * observeZoom) })
-      );
-      best = boosted;
-      term.options.fontSize = best;
-      term.resize(ptyCols, ptyRows);
-    }
-  } else {
-    const preferred = parseInt(fontSizeMode, 10) || DEFAULT_FONT_SIZE;
-    best = maxFontForTarget(targetW, targetH, { cap: preferred });
-  }
+  const best = maxFontForTarget(viewW, viewH, { cap: preferredCap });
 
   positionObserveTerminal();
   return { fontSize: best };
@@ -1281,6 +1464,7 @@ function scaleTerminalObserve() {
 }
 
 function applyTerminalLayout() {
+  syncTerminalInputMode();
   if (controlling) {
     terminalWrap.classList.remove("observe-mode");
     hideGridFrame();
@@ -1293,11 +1477,12 @@ function applyTerminalLayout() {
     setStatus(`Control — ${term.cols}×${term.rows}`);
     return;
   }
-  // Observe mode uses the DOM renderer so zoom/font-fit stays aligned with the PTY grid.
+  // Observe mode uses the canvas renderer (not DOM) so ligatures and grid metrics stay aligned.
   // WebGL loses its glyph atlas after observe layout (blank canvas at <100% zoom).
   setWebGLRenderer(false);
   term.resize(ptyCols, ptyRows);
   scaleTerminalObserve();
+  refreshLigatures();
 }
 
 function scheduleTerminalLayout() {
@@ -1311,6 +1496,7 @@ function finishInitialSync() {
   if (!awaitingInitialSync) {
     return;
   }
+  resetWSLoadRetries();
   awaitingInitialSync = false;
   clearSyncPoll();
   clearTimeout(syncFallbackTimer);
@@ -1348,6 +1534,7 @@ async function loadScreenSnapshot({ forceFinish = false } = {}) {
   ptyRows = body.screen?.rows || ptyRows;
   term.reset();
   term.resize(ptyCols, ptyRows);
+  refreshLigatures();
   if (body.replay_b64) {
     const bytes = decodeReplayB64(body.replay_b64);
     await writeToTerminal(REPLAY_RESET);
@@ -1447,6 +1634,7 @@ function disconnectWS() {
   clearTimeout(wsConnectTimeoutTimer);
   wsConnectTimeoutTimer = null;
   clearSyncPoll();
+  clearWSRetryTimer();
   resetAppearanceHintState();
   if (ws) {
     ws.onclose = null;
@@ -1457,6 +1645,7 @@ function disconnectWS() {
   syncFallbackTimer = null;
   wsWriteChain = Promise.resolve();
   controlling = false;
+  syncTerminalInputMode();
   takeoverBtn.disabled = true;
   releaseBtn.disabled = true;
 }
@@ -1484,6 +1673,7 @@ function connectWS() {
 
   term.reset();
   term.resize(ptyCols, ptyRows);
+  refreshLigatures();
 
   ws = new WebSocket(wsURL());
   ws.binaryType = "arraybuffer";
@@ -1497,10 +1687,11 @@ function connectWS() {
     sock.onclose = null;
     sock.onerror = null;
     sock.close();
-    failSessionLoad("Could not connect to session — check that tuile is running.", { retry: true });
+    retryOrFailSessionLoad("Could not connect to session — check that tuile is running.");
   }, LOAD_WS_CONNECT_TIMEOUT_MS);
 
   ws.onopen = () => {
+    resetWSLoadRetries();
     clearTimeout(wsConnectTimeoutTimer);
     wsConnectTimeoutTimer = null;
     setMode(controlling ? "control" : "observe", controlling ? "control" : "observe");
@@ -1513,7 +1704,7 @@ function connectWS() {
       if (!awaitingInitialSync) {
         return;
       }
-      loadScreenSnapshot()
+      loadScreenSnapshot({ forceFinish: true })
         .then(() => {
           if (!awaitingInitialSync) {
             return;
@@ -1548,10 +1739,7 @@ function connectWS() {
   };
 
   ws.onerror = () => {
-    if (uiBadge.get().text === "error") {
-      return;
-    }
-    failSessionLoad("WebSocket error — check token, Origin allowlist, and server.", { retry: true });
+    // onclose follows with the actionable failure path.
   };
 
   ws.onclose = () => {
@@ -1563,7 +1751,7 @@ function connectWS() {
       return;
     }
     if (awaitingInitialSync || sessionLoading) {
-      failSessionLoad("Connection closed before the session finished loading.", { retry: true });
+      retryOrFailSessionLoad("Connection closed before the session finished loading.");
       return;
     }
     setMode("disconnected");
@@ -1655,18 +1843,22 @@ async function attachToSession(id, { force = false } = {}) {
   } finally {
     attaching = false;
     updateSessionLoadingState();
+    syncExportToggle();
   }
 }
 
 async function refreshSessions({ autoAttach = true } = {}) {
   if (!bootstrapSecret) {
-    syncSessions([]);
+    const list = await sessionsWithConnected([]);
+    syncSessions(list);
     if (!sessionId || !token) {
       showPlaceholder(true);
       setMode("setup");
       setStatus("Enter the bootstrap secret printed by tuile serve.");
+    } else if (list.length > 0) {
+      setStatus("Connected — enter bootstrap secret to discover other sessions.");
     }
-    return false;
+    return list.length > 0;
   }
 
   try {
@@ -1679,7 +1871,7 @@ async function refreshSessions({ autoAttach = true } = {}) {
       return false;
     }
     const body = await res.json();
-    syncSessions(body.sessions || []);
+    syncSessions(await sessionsWithConnected(body.sessions || []));
 
     const stillActive = knownSessions.some((s) => s.session_id === sessionId);
     if (sessionId && stillActive) {
@@ -1712,6 +1904,7 @@ async function refreshSessions({ autoAttach = true } = {}) {
       setMode("idle");
       setStatus("Multiple sessions available — select one to tail.");
     }
+    syncExportToggle();
     return true;
   } catch (err) {
     setStatus(`Session discovery failed: ${err.message}`);
@@ -1805,10 +1998,28 @@ function startPolling() {
 }
 
 function sendInput(data) {
-  if (!ws || ws.readyState !== WebSocket.OPEN || !controlling) {
+  if (!ws || ws.readyState !== WebSocket.OPEN) {
     return;
   }
-  ws.send(data);
+  if (controlling || isTerminalResponse(data)) {
+    ws.send(data);
+  }
+}
+
+function isTerminalResponse(data) {
+  if (!data) {
+    return false;
+  }
+  const code = data.charCodeAt(0);
+  if (code !== 0x1b) {
+    return false;
+  }
+  const kind = data.charCodeAt(1);
+  return kind === 0x5d || kind === 0x5b || kind === 0x50;
+}
+
+function syncTerminalInputMode() {
+  term.options.disableStdin = !controlling;
 }
 
 term.onData((data) => {
@@ -1828,6 +2039,7 @@ takeoverBtn.addEventListener("click", async () => {
   try {
     await postJSON(`/v1/sessions/${sessionId}/takeover`);
     controlling = true;
+    syncTerminalInputMode();
     setMode("control", "control");
     applyTerminalLayout();
   } catch (err) {
@@ -1839,11 +2051,13 @@ releaseBtn.addEventListener("click", async () => {
   try {
     await postJSON(`/v1/sessions/${sessionId}/release`);
     controlling = false;
+    syncTerminalInputMode();
     setMode("observe", "observe");
     awaitingInitialSync = true;
     setSessionLoading(true, "Refreshing terminal…");
     term.reset();
     term.resize(ptyCols, ptyRows);
+    refreshLigatures();
     await loadScreenSnapshot({ forceFinish: true });
   } catch (err) {
     setStatus(`Release failed: ${err.message}`);
@@ -1861,6 +2075,7 @@ reconnectBtn.addEventListener("click", () => {
 });
 
 loadingRetry.addEventListener("click", () => {
+  resetWSLoadRetries();
   if (sessionId) {
     attachToSession(sessionId, { force: true });
   } else {
@@ -1899,9 +2114,10 @@ bootstrapForm.addEventListener("submit", (ev) => {
   refreshSessions({ autoAttach: true });
 });
 
-fontSelect.addEventListener("change", () => {
+fontSelect?.addEventListener("change", () => {
   term.options.fontFamily = fontSelect.value;
   localStorage.setItem(FONT_FAMILY_KEY, fontSelect.value);
+  refreshLigatures();
   updateWebGLControl();
   scheduleTerminalLayout();
 });
@@ -1932,7 +2148,7 @@ terminalThemeSelect?.addEventListener("change", () => {
   localStorage.setItem(TERMINAL_THEME_KEY, themeId);
 });
 
-fontSizeSelect.addEventListener("change", () => {
+fontSizeSelect?.addEventListener("change", () => {
   fontSizeMode = fontSizeSelect.value;
   localStorage.setItem(FONT_SIZE_KEY, fontSizeMode);
   observeBaseFont =
@@ -2019,28 +2235,430 @@ document.addEventListener("keydown", (ev) => {
 
 updateZoomControl();
 
+const exportDialog = document.getElementById("export-dialog");
+const exportForm = document.getElementById("export-form");
+const exportToggle = document.getElementById("export-toggle");
+const exportClose = document.getElementById("export-close");
+const exportFilenameInput = document.getElementById("export-filename");
+const exportAppearance = document.getElementById("export-appearance");
+const exportTerminalTheme = document.getElementById("export-terminal-theme");
+const exportBgMode = document.getElementById("export-background-mode");
+const exportCustomWrap = document.getElementById("export-custom-wrap");
+const exportGridWrap = document.getElementById("export-grid-wrap");
+const exportShowGrid = document.getElementById("export-show-grid");
+const exportChrome = document.getElementById("export-chrome");
+const exportOsStyleWrap = document.getElementById("export-os-style-wrap");
+const exportOsStyle = document.getElementById("export-os-style");
+const exportPreviewStage = document.getElementById("export-preview-stage");
+const exportPreviewImg = document.getElementById("export-preview-img");
+const exportPreviewStatus = document.getElementById("export-preview-status");
+const exportBackgroundFile = document.getElementById("export-background-file");
+const EXPORT_CUSTOM_FADE_MS = 240;
+
+let exportScreenCache = null;
+let exportPreviewUrl = null;
+let exportPreviewTimer = null;
+let exportPreviewRequest = 0;
+
+const EXPORT_THEME_VARS = [
+  "--export-frame-accent",
+  "--export-frame-dim",
+  "--export-frame-label-text",
+  "--export-frame-label-border",
+];
+
+function clearExportThemePreview() {
+  if (!terminalWrap) {
+    return;
+  }
+  for (const name of EXPORT_THEME_VARS) {
+    terminalWrap.style.removeProperty(name);
+  }
+}
+
+function viewerExportDefaults() {
+  const sess = knownSessions.find((s) => s.session_id === sessionId);
+  const selected = Number.parseInt(fontSizeSelect?.value, 10);
+  const fontSizePx =
+    fontSizeMode === "auto"
+      ? term?.options?.fontSize || observeBaseFont || 14
+      : Number.isFinite(selected)
+        ? selected
+        : 14;
+  const appearance = currentAppAppearance();
+  const terminalThemeId =
+    localStorage.getItem(TERMINAL_THEME_KEY) || defaultTerminalThemeIdForAppearance(appearance);
+  return defaultExportOptions({
+    fontFamily: fontSelect?.value,
+    fontSizePx,
+    theme: appearance,
+    terminalThemeId: resolveTerminalThemeId(terminalThemeId, appearance),
+    title: sess?.cli || sess?.label || "tuile",
+  });
+}
+
+function populateExportTerminalThemeSelect(selectedId, appearance = exportAppearance?.value || "dark") {
+  if (!exportTerminalTheme) {
+    return;
+  }
+  const groups = new Map();
+  for (const entry of listTerminalThemesForAppearance(appearance)) {
+    if (!groups.has(entry.family)) {
+      groups.set(entry.family, []);
+    }
+    groups.get(entry.family).push(entry);
+  }
+  exportTerminalTheme.replaceChildren();
+  for (const [family, entries] of [...groups.entries()].sort((a, b) => a[0].localeCompare(b[0]))) {
+    const group = document.createElement("optgroup");
+    group.label = family;
+    for (const entry of entries) {
+      const option = document.createElement("option");
+      option.value = entry.id;
+      option.textContent = entry.label;
+      option.selected = entry.id === selectedId;
+      group.appendChild(option);
+    }
+    exportTerminalTheme.appendChild(group);
+  }
+}
+
+function reconcileExportTerminalTheme() {
+  const appearance = exportAppearance?.value === "light" ? "light" : "dark";
+  const themeId = resolveTerminalThemeId(exportTerminalTheme?.value, appearance);
+  populateExportTerminalThemeSelect(themeId, appearance);
+  if (exportTerminalTheme) {
+    exportTerminalTheme.value = themeId;
+  }
+  return themeId;
+}
+
+function isExportOsChrome() {
+  return exportChrome?.value === "os";
+}
+
+function collectExportOptionsFromForm() {
+  const appearance = exportAppearance?.value === "light" ? "light" : "dark";
+  return {
+    ...viewerExportDefaults(),
+    chrome_preset: exportChrome?.value || "minimal",
+    chrome_os_style: exportOsStyle?.value || "wireframe",
+    background_mode: exportBgMode?.value || "transparent",
+    scale: Number(document.getElementById("export-scale")?.value || 1),
+    format: document.getElementById("export-format")?.value || "png",
+    theme: appearance,
+    terminal_theme_id: resolveTerminalThemeId(exportTerminalTheme?.value, appearance),
+    title: exportFilenameInput?.value || "tuile",
+    show_grid_size: !isExportOsChrome() && Boolean(exportShowGrid?.checked),
+  };
+}
+
+function clearExportPreview() {
+  if (exportPreviewUrl) {
+    URL.revokeObjectURL(exportPreviewUrl);
+    exportPreviewUrl = null;
+  }
+  if (exportPreviewImg) {
+    exportPreviewImg.hidden = true;
+    exportPreviewImg.removeAttribute("src");
+  }
+  if (exportPreviewStatus) {
+    exportPreviewStatus.hidden = false;
+    exportPreviewStatus.textContent = "Preview will appear here";
+  }
+  exportPreviewStage?.classList.remove("is-loading");
+}
+
+function setExportPreviewLoading() {
+  exportPreviewStage?.classList.add("is-loading");
+  if (exportPreviewStatus && !exportPreviewImg?.src) {
+    exportPreviewStatus.hidden = false;
+    exportPreviewStatus.textContent = "Rendering preview…";
+  }
+}
+
+function setExportPreviewImage(blob) {
+  const previousUrl = exportPreviewUrl;
+  exportPreviewUrl = URL.createObjectURL(blob);
+  if (exportPreviewImg) {
+    exportPreviewImg.onload = () => {
+      if (previousUrl) {
+        URL.revokeObjectURL(previousUrl);
+      }
+      exportPreviewImg.onload = null;
+      exportPreviewStage?.classList.remove("is-loading");
+    };
+    exportPreviewImg.src = exportPreviewUrl;
+    exportPreviewImg.hidden = false;
+  }
+  if (exportPreviewStatus) {
+    exportPreviewStatus.hidden = true;
+  }
+}
+
+async function ensureExportScreenData() {
+  if (exportScreenCache) {
+    return exportScreenCache;
+  }
+  if (!sessionId || !token) {
+    throw new Error("no active session");
+  }
+  const res = await fetchWithTimeout(
+    apiURL(`/v1/sessions/${sessionId}/screen?replay=1`),
+    { headers: authHeaders() },
+    LOAD_SNAPSHOT_TIMEOUT_MS
+  );
+  if (!res.ok) {
+    throw new Error(`screen fetch failed: ${res.status}`);
+  }
+  const body = await res.json();
+  exportScreenCache = {
+    screen: body.screen,
+    replayBytes: body.replay_b64 ? decodeReplayB64(body.replay_b64) : null,
+  };
+  return exportScreenCache;
+}
+
+function viewerExportMetrics() {
+  const grid = measureTerminalGrid();
+  return {
+    termW: grid.width,
+    termH: grid.height,
+    cols: ptyCols,
+    rows: ptyRows,
+    fontSizePx: term?.options?.fontSize,
+    fontFamily: fontSelect?.value || term?.options?.fontFamily,
+  };
+}
+
+function scheduleExportPreview() {
+  clearTimeout(exportPreviewTimer);
+  exportPreviewTimer = setTimeout(() => {
+    void renderExportPreview();
+  }, 120);
+}
+
+async function renderExportPreview() {
+  if (!exportDialog?.open) {
+    return;
+  }
+  const requestId = ++exportPreviewRequest;
+  setExportPreviewLoading();
+  try {
+    const { screen, replayBytes } = await ensureExportScreenData();
+    if (requestId !== exportPreviewRequest || !exportDialog?.open) {
+      return;
+    }
+    const opts = {
+      ...collectExportOptionsFromForm(),
+      format: "png",
+    };
+    const bgFile = exportBackgroundFile?.files?.[0] || null;
+    const { composeExportPNG } = await import("./export-compositor.js");
+    const blob = await composeExportPNG({
+      screen,
+      replayBytes,
+      opts,
+      backgroundFile: bgFile,
+      viewerMetrics: viewerExportMetrics(),
+    });
+    if (requestId !== exportPreviewRequest || !exportDialog?.open) {
+      return;
+    }
+    setExportPreviewImage(blob);
+    syncExportPreviewStage();
+  } catch (err) {
+    if (requestId !== exportPreviewRequest || !exportDialog?.open) {
+      return;
+    }
+    exportPreviewStage?.classList.remove("is-loading");
+    if (exportPreviewStatus) {
+      exportPreviewStatus.hidden = !exportPreviewImg?.src;
+      exportPreviewStatus.textContent = `Preview failed: ${err.message}`;
+    }
+  }
+}
+
+function syncExportChromeFields() {
+  const osChrome = isExportOsChrome();
+  if (exportOsStyleWrap) {
+    exportOsStyleWrap.hidden = !osChrome;
+    exportOsStyleWrap.setAttribute("aria-hidden", String(!osChrome));
+  }
+  if (exportGridWrap) {
+    exportGridWrap.hidden = osChrome;
+    exportGridWrap.setAttribute("aria-hidden", String(osChrome));
+  }
+}
+
+function syncExportPreviewStage() {
+  const mode = exportBgMode?.value || "transparent";
+  const hasCustomFile = Boolean(exportBackgroundFile?.files?.[0]);
+  exportPreviewStage?.classList.toggle("has-custom-background", mode === "custom" && hasCustomFile);
+  exportPreviewStage?.classList.toggle("has-export-background", mode !== "transparent");
+}
+
+function syncExportBackgroundFields() {
+  const mode = exportBgMode?.value || "transparent";
+  const showCustom = mode === "custom";
+  if (exportCustomWrap) {
+    exportCustomWrap.classList.toggle("is-visible", showCustom);
+    exportCustomWrap.setAttribute("aria-hidden", String(!showCustom));
+    if (!showCustom) {
+      window.setTimeout(() => {
+        if (exportBgMode?.value !== "custom" && exportBackgroundFile) {
+          exportBackgroundFile.value = "";
+        }
+      }, EXPORT_CUSTOM_FADE_MS);
+    }
+  }
+  syncExportPreviewStage();
+  syncExportChromeFields();
+}
+
+function syncExportToggle() {
+  const toggle = document.getElementById("export-toggle");
+  const dialog = document.getElementById("export-dialog");
+  if (!toggle) {
+    return;
+  }
+  const canExport = Boolean(sessionId && token);
+  toggle.disabled = !canExport;
+  toggle.setAttribute("aria-disabled", String(!canExport));
+  toggle.title = canExport
+    ? "Export screenshot"
+    : "Export screenshot (select a session first)";
+  if (!canExport && dialog?.open) {
+    closeExportDialog();
+  }
+}
+
+function openExportDialog() {
+  if (!exportDialog || !sessionId) {
+    setStatus("Attach to a session before exporting.");
+    return;
+  }
+  exportScreenCache = null;
+  exportPreviewRequest += 1;
+  const defaults = viewerExportDefaults();
+  exportChrome.value = defaults.chrome_preset;
+  if (exportOsStyle) {
+    exportOsStyle.value = defaults.chrome_os_style || "wireframe";
+  }
+  exportBgMode.value = defaults.background_mode;
+  document.getElementById("export-scale").value = String(defaults.scale);
+  document.getElementById("export-format").value = defaults.format;
+  exportFilenameInput.value = defaults.title;
+  if (exportAppearance) {
+    exportAppearance.value = defaults.theme;
+  }
+  populateExportTerminalThemeSelect(defaults.terminal_theme_id, defaults.theme);
+  if (exportTerminalTheme) {
+    exportTerminalTheme.value = defaults.terminal_theme_id;
+  }
+  if (exportShowGrid) {
+    exportShowGrid.checked = defaults.show_grid_size;
+  }
+  if (exportBackgroundFile) {
+    exportBackgroundFile.value = "";
+  }
+  syncExportBackgroundFields();
+  syncExportChromeFields();
+  exportDialog.showModal();
+  exportFilenameInput?.focus({ preventScroll: true });
+  scheduleExportPreview();
+}
+
+function closeExportDialog() {
+  exportPreviewRequest += 1;
+  clearTimeout(exportPreviewTimer);
+  exportPreviewTimer = null;
+  exportScreenCache = null;
+  clearExportPreview();
+  exportDialog?.close();
+  clearExportThemePreview();
+}
+
+exportToggle?.addEventListener("click", () => openExportDialog());
+exportClose?.addEventListener("click", () => closeExportDialog());
+exportChrome?.addEventListener("change", () => {
+  syncExportChromeFields();
+  scheduleExportPreview();
+});
+exportOsStyle?.addEventListener("change", scheduleExportPreview);
+exportBgMode?.addEventListener("change", () => {
+  syncExportBackgroundFields();
+  scheduleExportPreview();
+});
+exportAppearance?.addEventListener("change", () => {
+  reconcileExportTerminalTheme();
+  scheduleExportPreview();
+});
+exportTerminalTheme?.addEventListener("change", scheduleExportPreview);
+document.getElementById("export-scale")?.addEventListener("change", scheduleExportPreview);
+document.getElementById("export-format")?.addEventListener("change", scheduleExportPreview);
+exportShowGrid?.addEventListener("change", scheduleExportPreview);
+exportBackgroundFile?.addEventListener("change", scheduleExportPreview);
+
+exportForm?.addEventListener("submit", async (ev) => {
+  ev.preventDefault();
+  if (!sessionId || !token) {
+    setStatus("No active session to export.");
+    return;
+  }
+  const opts = collectExportOptionsFromForm();
+  const bgFile = exportBackgroundFile?.files?.[0] || null;
+  try {
+    setStatus("Exporting screenshot…");
+    const { screen, replayBytes } = await ensureExportScreenData();
+    const { composeExport, downloadBlob } = await import("./export-compositor.js");
+    const blob = await composeExport({
+      screen,
+      replayBytes,
+      opts,
+      backgroundFile: bgFile,
+      viewerMetrics: viewerExportMetrics(),
+    });
+    downloadBlob(blob, exportFilename(opts.title, opts.format));
+    setStatus("Export downloaded.");
+    closeExportDialog();
+  } catch (err) {
+    setStatus(`Export failed: ${err.message}`);
+  }
+});
+
 document.fonts?.ready?.then(() => scheduleTerminalLayout());
 
 async function boot() {
   startPolling();
-  if (sessionId && token) {
-    sessionCache.set(sessionId, { token, cols: ptyCols, rows: ptyRows });
+  const targetSession = sessionId;
+  if (targetSession) {
     await refreshSessions({ autoAttach: false });
-    const sess = knownSessions.find((s) => s.session_id === sessionId);
-    if (sess) {
-      ptyCols = sess.cols || ptyCols;
-      ptyRows = sess.rows || ptyRows;
+    if (!sessionId) {
+      await refreshSessions({ autoAttach: true });
+      return;
     }
-    showPlaceholder(false);
-    connectWS();
-    return;
-  }
-  if (sessionId && !token) {
+    if (bootstrapSecret) {
+      await attachToSession(sessionId, { force: true });
+      return;
+    }
+    if (token) {
+      sessionCache.set(sessionId, { token, cols: ptyCols, rows: ptyRows });
+      const sess = knownSessions.find((s) => s.session_id === sessionId);
+      if (sess) {
+        ptyCols = sess.cols || ptyCols;
+        ptyRows = sess.rows || ptyRows;
+      }
+      showPlaceholder(false);
+      connectWS();
+      syncExportToggle();
+      return;
+    }
     await attachToSession(sessionId);
-    await refreshSessions({ autoAttach: false });
     return;
   }
   await refreshSessions({ autoAttach: true });
+  syncExportToggle();
 }
 
 boot();

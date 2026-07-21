@@ -33,6 +33,25 @@ func TestViewPageServed(t *testing.T) {
 	if !strings.Contains(rec.Body.String(), "Tuile") {
 		t.Fatal("expected viewer HTML")
 	}
+	if !strings.Contains(rec.Body.String(), `id="app-version"`) {
+		t.Fatal("expected app version in viewer HTML")
+	}
+	if !strings.Contains(rec.Body.String(), ">dev<") {
+		t.Fatalf("expected substituted version in HTML, got: %s", rec.Body.String())
+	}
+}
+
+func TestVersionEndpoint(t *testing.T) {
+	srv, _ := newTestServer(t, nil)
+	req := httptest.NewRequest(http.MethodGet, "/version", nil)
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d", rec.Code)
+	}
+	if !strings.Contains(rec.Body.String(), `"version"`) {
+		t.Fatalf("body = %s", rec.Body.String())
+	}
 }
 
 func TestAssetsServed(t *testing.T) {
@@ -45,6 +64,12 @@ func TestAssetsServed(t *testing.T) {
 	}
 	if !strings.Contains(rec.Body.String(), "connectWS") {
 		t.Fatal("expected app.js content")
+	}
+	if ct := rec.Header().Get("Content-Type"); !strings.Contains(ct, "javascript") {
+		t.Fatalf("content-type = %q", ct)
+	}
+	if cc := rec.Header().Get("Cache-Control"); cc != "no-cache" {
+		t.Fatalf("cache-control = %q", cc)
 	}
 }
 

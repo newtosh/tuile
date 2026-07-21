@@ -82,6 +82,12 @@ func (s *Session) UnsubscribeOutput(ch chan []byte) {
 	s.outMu.Unlock()
 }
 
+func (s *Session) outputSubscriberCount() int {
+	s.outMu.Lock()
+	defer s.outMu.Unlock()
+	return len(s.outSubs)
+}
+
 func (s *Session) broadcastOutput(p []byte) {
 	s.outMu.Lock()
 	subs := make([]chan []byte, 0, len(s.outSubs))

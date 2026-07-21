@@ -28,7 +28,7 @@
       href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600&display=swap"
       rel="stylesheet"
     />
-    <link rel="stylesheet" href="/assets/style.css" />
+    <link rel="stylesheet" href="/assets/style.css?v=__TUILE_VERSION__" />
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/css/xterm.css" />
   </head>
   <body>
@@ -40,10 +40,25 @@
           <rect x="6" y="17" width="9" height="9" rx="1.5" fill="var(--accent)" opacity="0.82" />
           <rect x="17" y="17" width="9" height="9" rx="1.5" fill="var(--accent)" />
         </svg>
-        <h1>Tuile</h1>
+        <div class="header-title">
+          <h1>Tuile</h1>
+          <span class="app-version" id="app-version">__TUILE_VERSION__</span>
+        </div>
         <span id="mode-badge" class="badge">connecting</span>
       </div>
       <div class="header-actions">
+        <button
+          id="export-toggle"
+          type="button"
+          class="icon-btn"
+          title="Export screenshot (select a session first)"
+          aria-haspopup="dialog"
+          aria-controls="export-dialog"
+          aria-disabled="true"
+          disabled
+        >
+          <span id="export-toggle-icon" class="icon-slot"></span>
+        </button>
         <div class="settings-wrap">
           <button
             id="settings-toggle"
@@ -103,8 +118,9 @@
                     <span id="webgl-info-icon" class="icon-slot"></span>
                   </button>
                   <span id="webgl-info-tooltip" class="info-tip-popover menu-note" role="tooltip">
-                    WebGL renderer for sharper Unicode and box-drawing. Programming ligatures (e.g.
-                    <code>=&gt;</code>) are not supported in the browser viewer yet.
+                    WebGL renderer for sharper Unicode and box-drawing. Programming ligatures
+                    (e.g. <code>..</code>, <code>=&gt;</code>) use the canvas renderer when
+                    enhanced rendering is off.
                   </span>
                 </span>
               </div>
@@ -224,13 +240,142 @@
           <span id="zoom-in-icon" class="icon-slot"></span>
         </button>
       </div>
-      <div id="status-message" class="status-message">Initializing…</div>
+      <div class="status-bar-end">
+        <div id="status-message" class="status-message">Initializing…</div>
+        <a
+          id="github-link"
+          class="status-github"
+          href="https://github.com/newtosh/tuile"
+          target="_blank"
+          rel="noopener noreferrer"
+          title="newtosh/tuile on GitHub"
+        >
+          <span id="github-link-icon" class="icon-slot"></span>
+          <span class="status-github-label">newtosh/tuile</span>
+        </a>
+      </div>
     </footer>
+
+    <dialog id="export-dialog" class="export-dialog">
+      <form id="export-form" method="dialog" class="export-form">
+        <header class="export-header">
+          <h2>Export screenshot</h2>
+          <div class="export-header-actions">
+            <span class="info-tip export-info-tip">
+              <button
+                type="button"
+                class="info-tip-trigger icon-btn"
+                aria-label="Export guidance"
+                aria-describedby="export-info-tooltip"
+              >
+                <span id="export-info-icon" class="icon-slot"></span>
+              </button>
+              <span id="export-info-tooltip" class="info-tip-popover export-info-popover" role="tooltip">
+                For README and docs, avoid personal names or account-specific strings —
+                see <a href="https://github.com/newtosh/tuile/blob/main/CONTRIBUTING.md">CONTRIBUTING</a>.
+              </span>
+            </span>
+            <button type="button" id="export-close" class="icon-btn" aria-label="Close">
+              <span id="export-close-icon" class="icon-slot"></span>
+            </button>
+          </div>
+        </header>
+        <div class="export-body">
+          <aside class="export-preview-pane" aria-label="Export preview">
+            <div class="export-preview-stage" id="export-preview-stage">
+              <img id="export-preview-img" class="export-preview-img" alt="" hidden />
+              <p id="export-preview-status" class="export-preview-status">Preview will appear here</p>
+            </div>
+          </aside>
+          <div class="export-controls">
+            <div class="export-controls-scroll">
+            <label class="export-field">
+              <span>File name</span>
+              <input id="export-filename" type="text" maxlength="120" placeholder="tuile" />
+            </label>
+
+            <details class="export-section" open>
+              <summary class="export-section-summary">Output</summary>
+              <div class="export-section-body">
+                <label class="export-field">
+                  <span>Chrome</span>
+                  <select id="export-chrome">
+                    <option value="minimal">Tuile viewer</option>
+                    <option value="os">OS window</option>
+                  </select>
+                </label>
+                <label class="export-field" id="export-os-style-wrap" hidden>
+                  <span>OS style</span>
+                  <select id="export-os-style">
+                    <option value="wireframe">Wireframe</option>
+                    <option value="macos">macOS</option>
+                    <option value="windows">Windows</option>
+                  </select>
+                </label>
+                <label class="export-field export-checkbox" id="export-grid-wrap">
+                  <input id="export-show-grid" type="checkbox" checked />
+                  <span>Show grid size</span>
+                </label>
+                <div class="export-row">
+                  <label class="export-field">
+                    <span>Scale</span>
+                    <select id="export-scale">
+                      <option value="1">1x</option>
+                      <option value="2">2x</option>
+                    </select>
+                  </label>
+                  <label class="export-field">
+                    <span>Format</span>
+                    <select id="export-format">
+                      <option value="png">PNG</option>
+                      <option value="svg">SVG</option>
+                    </select>
+                  </label>
+                </div>
+              </div>
+            </details>
+
+            <details class="export-section" open>
+              <summary class="export-section-summary">Style</summary>
+              <div class="export-section-body">
+                <label class="export-field">
+                  <span>Appearance</span>
+                  <select id="export-appearance">
+                    <option value="dark">Dark</option>
+                    <option value="light">Light</option>
+                  </select>
+                </label>
+                <label class="export-field">
+                  <span>Terminal theme</span>
+                  <select id="export-terminal-theme" aria-label="Export terminal theme"></select>
+                </label>
+                <label class="export-field">
+                  <span>Background</span>
+                  <select id="export-background-mode">
+                    <option value="transparent">Transparent</option>
+                    <option value="custom">Custom image</option>
+                  </select>
+                </label>
+                <label class="export-field export-custom-field" id="export-custom-wrap" aria-hidden="true">
+                  <span>Background image</span>
+                  <input id="export-background-file" type="file" accept="image/png,image/jpeg,image/webp" />
+                </label>
+              </div>
+            </details>
+            </div>
+            <footer class="export-actions">
+              <button type="submit" id="export-download" class="menu-action primary">Download</button>
+            </footer>
+          </div>
+        </div>
+      </form>
+    </dialog>
 
     <script src="https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/lib/xterm.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@xterm/addon-fit@0.10.0/lib/addon-fit.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@xterm/addon-unicode11@0.8.0/lib/addon-unicode11.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@xterm/addon-canvas@0.7.0/lib/addon-canvas.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@xterm/addon-webgl@0.18.0/lib/addon-webgl.js"></script>
-    <script type="module" src="/assets/app.js"></script>
+    <script type="module" src="/assets/app.js?v=__TUILE_VERSION__"></script>
   </body>
 </html>

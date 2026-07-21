@@ -5,6 +5,7 @@ import {
   ACK_STORAGE_KEY,
   activeSessionIDSet,
   loadAckMap,
+  mergeSessionsWithConnected,
   pruneAckMap,
   pruneClientSessionState,
   pruneSessionCache,
@@ -75,5 +76,13 @@ describe("session-state", () => {
   it("activeSessionIDSet ignores rows without session_id", () => {
     const ids = activeSessionIDSet([{ session_id: "ok" }, {}, { session_id: "" }]);
     assert.deepEqual([...ids], ["ok"]);
+  });
+
+  it("mergeSessionsWithConnected appends only when missing", () => {
+    const connected = { session_id: "b", workspace: "/tmp" };
+    const base = [{ session_id: "a" }];
+    assert.deepEqual(mergeSessionsWithConnected(base, connected), [...base, connected]);
+    assert.deepEqual(mergeSessionsWithConnected([...base, connected], connected), [...base, connected]);
+    assert.deepEqual(mergeSessionsWithConnected(base, null), base);
   });
 });

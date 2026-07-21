@@ -36,7 +36,7 @@ jobs:
           CGO_ENABLED: "0"
           VERSION: ${{ github.ref_name }}
         run: |
-          ldflags="-s -w -X main.Version=${VERSION}"
+          ldflags="-s -w -X github.com/newtosh/tuile/internal/version.Version=${VERSION}"
           go build -ldflags="${ldflags}" -o "tuile-${{ matrix.goos }}-${{ matrix.goarch }}" ./cmd/tuile
           go build -ldflags="${ldflags}" -o "tuile-mcp-${{ matrix.goos }}-${{ matrix.goarch }}" ./cmd/tuile-mcp
       - uses: actions/upload-artifact@v7

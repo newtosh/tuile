@@ -1,0 +1,29 @@
+---
+description: After viewer or export UI changes, rebuild tuile and recreate demo sessions
+globs: web/**,scripts/viewer-*.sh
+alwaysApply: false
+---
+
+# Viewer dev restart
+
+After iterating on `web/` or export/viewer scripts, run:
+
+```bash
+make viewer-dev
+```
+
+This will:
+
+1. `make build`
+2. Stop any tuile server on `127.0.0.1:7710` (via `.tuile-dev.pid`)
+3. Start `./bin/tuile serve --force` in the background
+4. Run `scripts/viewer-demo-sessions.sh` (theme demo + plain shell)
+
+Options via the script:
+
+- `./scripts/viewer-dev-restart.sh --no-build` — restart + sessions only
+- `./scripts/viewer-dev-restart.sh --no-sessions` — build + restart only
+
+Server log: `.tuile-dev.log` in the repo root.
+
+Use `SHELL=/usr/bin/zsh` (default in the script) so demo sessions spawn correctly.

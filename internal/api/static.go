@@ -5,17 +5,19 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/newtosh/tuile/internal/version"
 	tuileweb "github.com/newtosh/tuile/web"
 )
 
 func (s *Server) registerStaticRoutes() {
 	assets, _ := fs.Sub(tuileweb.FS, ".")
-	s.mux.Handle("GET /assets/", http.StripPrefix("/assets/", http.FileServer(http.FS(assets))))
+	s.mux.Handle("GET /assets/", http.StripPrefix("/assets/", assetHandler(assets)))
 	s.mux.HandleFunc("GET /favicon.ico", func(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/assets/favicon.ico", http.StatusPermanentRedirect)
 	})
 	s.mux.HandleFunc("GET /view", s.handleView)
 	s.mux.HandleFunc("GET /view/", s.handleView)
+	s.mux.HandleFunc("GET /version", s.handleVersion)
 	s.mux.HandleFunc("GET /", s.handleRootRedirect)
 }
 
@@ -43,7 +45,36 @@ func (s *Server) handleView(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	_, _ = w.Write(data)
+	html := strings.ReplaceAll(string(data), "__TUILE_VERSION__", formatVersionLabel(version.Version))
+	_, _ = w.Write([]byte(html))
+}
+
+func (s *Server) handleVersion(w http.ResponseWriter, _ *http.Request) {
+	writeJSON(w, http.StatusOK, map[string]string{"version": version.Version})
+}
+
+func formatVersionLabel(v string) string {
+	if v == "" || v == "dev" {
+		return "dev"
+	}
+	if strings.HasPrefix(v, "v") {
+		return v
+	}
+	return "v" + v
+}
+
+func assetHandler(assets fs.FS) http.Handler {
+	fileServer := http.FileServer(http.FS(assets))
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, ".js") {
+			w.Header().Set("Content-Type", "application/javascript; charset=utf-8")
+			w.Header().Set("Cache-Control", "no-cache")
+		} else if strings.HasSuffix(r.URL.Path, ".css") {
+			w.Header().Set("Content-Type", "text/css; charset=utf-8")
+			w.Header().Set("Cache-Control", "no-cache")
+		}
+		fileServer.ServeHTTP(w, r)
+	})
 }
 
 // DefaultDevOrigins returns browser Origin values for local viewer dev (R10 dev ergonomics).

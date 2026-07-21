@@ -68,6 +68,26 @@ func waitForSessionRowCount(t *testing.T, ctx context.Context, want int) {
 	t.Fatalf("expected %d session rows, got %d", want, count)
 }
 
+func TestViewerDirectLinkShowsConnectedSessionWithoutBootstrap(t *testing.T) {
+	srv := testkit.NewServer(t)
+	sess := srv.NewSession(t, t.TempDir())
+
+	ctx, cancel := testkit.BrowserContext(t)
+	defer cancel()
+
+	viewURL := fmt.Sprintf("%s/view?session=%s&token=%s", srv.URL, sess.ID, sess.Token)
+	if err := chromedp.Run(ctx,
+		chromedp.Navigate(viewURL),
+		chromedp.Evaluate(`localStorage.removeItem('tuile_bootstrap')`, nil),
+		chromedp.Reload(),
+		chromedp.WaitVisible("#session-list", chromedp.ByQuery),
+	); err != nil {
+		t.Skipf("browser automation unavailable: %v", err)
+	}
+
+	waitForSessionRowCount(t, ctx, 1)
+}
+
 func TestViewerSessionListRendersAllSessions(t *testing.T) {
 	srv := testkit.NewServer(t)
 	const want = 5

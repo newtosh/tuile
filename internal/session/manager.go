@@ -92,9 +92,20 @@ func (m *Manager) Create(workspace string, opts config.Session) (*Session, error
 	m.sessions[id] = sess
 	m.mu.Unlock()
 
+	sess.bindTerminalResponses(m)
+
 	go pumpPTYToEmulator(sess)
 
 	return sess, nil
+}
+
+func (s *Session) bindTerminalResponses(m *Manager) {
+	s.Emulator.SetOnData(func(data string) {
+		if s.outputSubscriberCount() > 0 {
+			return
+		}
+		_ = m.WritePTYResponse(s.ID, []byte(data))
+	})
 }
 
 // Get returns a session by ID.

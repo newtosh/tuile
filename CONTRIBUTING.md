@@ -45,6 +45,7 @@ Downstream projects can reuse the public `testkit` package — see [docs/testing
 
 - Update [README.md](README.md) when behavior or setup changes.
 - README screenshots should show real agent TUIs but **must not include personal names, emails, or account-specific strings**. Prefer login screens, in-progress agent output, or generic shell sessions.
+- The viewer **Export screenshot** panel produces the same assets as `POST /v1/sessions/{id}/export` — apply the same hygiene before committing exported images to docs.
 - Put new images in `docs/images/`.
 
 ## What CI checks
