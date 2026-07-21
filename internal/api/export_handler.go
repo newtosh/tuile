@@ -130,6 +130,9 @@ func parseExportMultipart(r *http.Request) (export.Options, io.Reader, error) {
 	if v := r.FormValue("title"); v != "" {
 		opts.Title = v
 	}
+	if v := r.FormValue("theme"); v != "" {
+		opts.Theme = v
+	}
 	if v := r.FormValue("show_grid_size"); v != "" {
 		opts.ShowGridSize = v == "1" || strings.EqualFold(v, "true")
 	}

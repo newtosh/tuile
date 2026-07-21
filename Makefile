@@ -20,6 +20,10 @@ test-export-background:
 	@chmod +x scripts/verify-export-custom-background.sh
 	@./scripts/verify-export-custom-background.sh
 
+test-export-svg:
+	@chmod +x scripts/verify-export-svg.sh scripts/audit-export-svg.py
+	@./scripts/verify-export-svg.sh
+
 vet:
 	go vet ./...
 

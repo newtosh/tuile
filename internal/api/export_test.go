@@ -109,6 +109,41 @@ func TestSessionExportMultipartBackground(t *testing.T) {
 	}
 }
 
+func TestSessionExportSVG(t *testing.T) {
+	srv, boot := newTestServer(t, nil)
+	dir := t.TempDir()
+	id, token := createSessionViaAPI(t, srv, boot, dir)
+
+	opts := export.DefaultOptions()
+	opts.Format = export.FormatSVG
+	opts.BackgroundMode = export.BackgroundTransparent
+	body, _ := json.Marshal(opts)
+	req := httptest.NewRequest(http.MethodPost, "/v1/sessions/"+id+"/export", bytes.NewReader(body))
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/json")
+	req.SetPathValue("id", id)
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("export status = %d body=%s", rec.Code, rec.Body.String())
+	}
+	if ct := rec.Header().Get("Content-Type"); ct != "image/svg+xml" {
+		t.Fatalf("content-type = %q", ct)
+	}
+	if !strings.Contains(rec.Body.String(), "<svg") {
+		t.Fatalf("unexpected svg body: %s", rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), `viewBox="0 0 `) {
+		t.Fatal("missing viewBox")
+	}
+	if strings.Contains(rec.Body.String(), `href="data:image/jpeg;base64,`) {
+		t.Fatal("svg export must be vector, not raster wrapper")
+	}
+	if strings.Contains(rec.Body.String(), `transform="scale(`) {
+		t.Fatal("svg export must not use nested scale transforms")
+	}
+}
+
 func customBackgroundPNG(t *testing.T) []byte {
 	t.Helper()
 	img := image.NewRGBA(image.Rect(0, 0, 16, 16))

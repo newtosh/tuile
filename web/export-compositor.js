@@ -268,10 +268,6 @@ function fillRoundRectTop(ctx, x, y, w, h, r, color) {
   ctx.fill();
 }
 
-function windowsTabTopPathSvg(x, y, w, h, r) {
-  return `M${x} ${y + h} L${x} ${y + r} Q${x} ${y} ${x + r} ${y} L${x + w - r} ${y} Q${x + w} ${y} ${x + w} ${y + r} L${x + w} ${y + h} Z`;
-}
-
 function canvasSize(layout) {
   return {
     w: layout.renderOuterW ?? layout.outerW,
@@ -443,11 +439,6 @@ function drawTuileFavicon(ctx, x, y, size, image) {
     ctx.fill();
     ctx.restore();
   }
-}
-
-function tuileFaviconSvg(x, y, size) {
-  const s = size / 32;
-  return `<g transform="translate(${x},${y}) scale(${s})"><rect width="32" height="32" rx="6" fill="#0c0c0e"/><rect x="6" y="6" width="9" height="9" rx="1.5" fill="#e8a54b"/><rect x="17" y="6" width="9" height="9" rx="1.5" fill="#e8a54b" opacity="0.82"/><rect x="6" y="17" width="9" height="9" rx="1.5" fill="#e8a54b" opacity="0.82"/><rect x="17" y="17" width="9" height="9" rx="1.5" fill="#e8a54b"/></g>`;
 }
 
 function drawWindowsTabCloseButton(ctx, palette, tabX, tabY, tabW, tabH) {
@@ -842,6 +833,108 @@ function drawExportTerminal(ctx, measured, layout) {
   ctx.drawImage(canvas, 0, 0, canvas.width, canvas.height, layout.termX, layout.termY, width, height);
 }
 
+function flattenCanvasForSvgEmbed(src, fill = "#0b0c0f") {
+  const canvas = document.createElement("canvas");
+  canvas.width = src.width;
+  canvas.height = src.height;
+  const ctx = canvas.getContext("2d", { alpha: false });
+  if (!ctx) {
+    throw new Error("opaque 2d context unavailable");
+  }
+  ctx.fillStyle = fill;
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.drawImage(src, 0, 0);
+  return canvas;
+}
+
+function wrapRasterSvg(dataUrl, logicalW, logicalH) {
+  return `<?xml version="1.0" encoding="UTF-8"?><svg xmlns="http://www.w3.org/2000/svg" width="${logicalW}" height="${logicalH}" viewBox="0 0 ${logicalW} ${logicalH}"><image x="0" y="0" width="${logicalW}" height="${logicalH}" href="${dataUrl}"/></svg>`;
+}
+
+function svgEmbedBackgroundFill(opts) {
+  if (opts.background_mode === BACKGROUND_TRANSPARENT) {
+    return null;
+  }
+  if (opts.background_mode === BACKGROUND_CUSTOM) {
+    return null;
+  }
+  if (opts.background_mode === BACKGROUND_PRESET) {
+    const spec = BACKGROUND_PRESETS[opts.background_preset] || BACKGROUND_PRESETS.slate;
+    if (spec.kind === "solid") {
+      return spec.color;
+    }
+  }
+  return "#0b0c0f";
+}
+
+async function canvasToDataUrl(canvas, mimeType = "image/png", quality) {
+  return new Promise((resolve, reject) => {
+    canvas.toBlob(
+      (blob) => {
+        if (!blob) {
+          reject(new Error("canvas encode failed"));
+          return;
+        }
+        const reader = new FileReader();
+        reader.onload = () => resolve(String(reader.result));
+        reader.onerror = () => reject(reader.error || new Error("read failed"));
+        reader.readAsDataURL(blob);
+      },
+      mimeType,
+      quality
+    );
+  });
+}
+
+async function prepareExportTerminal({ screen, replayBytes, opts, viewerMetrics }) {
+  const options = validateExportOptions(opts);
+  const layout = computeLayout(screen, options, viewerMetrics);
+  const host = document.createElement("div");
+  host.style.cssText = "position:fixed;left:0;top:0;opacity:0;pointer-events:none;z-index:-1;";
+  document.body.appendChild(host);
+  const { term, removeLigatures } = loadExportTerminal(host, layout, options, viewerMetrics);
+  try {
+    if (replayBytes?.length) {
+      await writeTerminal(term, replayBytes);
+    } else if (screen?.lines) {
+      await writeTerminal(term, screen.lines.join("\n"));
+    }
+    term.refresh(0, term.rows - 1);
+    if (document.fonts?.ready) {
+      await document.fonts.ready;
+    }
+    const { termCanvas, measured } = await waitForTerminalCanvas(term, host);
+    let termW = layout.termW;
+    let termH = layout.termH;
+    if (viewerMetrics?.termW > 0 && viewerMetrics?.termH > 0) {
+      termW = Math.round(viewerMetrics.termW * layout.renderScale);
+      termH = Math.round(viewerMetrics.termH * layout.renderScale);
+    } else if (measured.width > 0 && measured.height > 0) {
+      termW = measured.width;
+      termH = measured.height;
+    }
+    const renderLayout = finalizeRenderLayout(layout, options, termW, termH);
+    return {
+      options,
+      renderLayout,
+      termCanvas,
+      termW,
+      termH,
+      measured,
+      dispose() {
+        removeLigatures?.();
+        term.dispose();
+        host.remove();
+      },
+    };
+  } catch (err) {
+    removeLigatures?.();
+    term.dispose();
+    host.remove();
+    throw err;
+  }
+}
+
 function drawTerminalFallback(ctx, screen, layout) {
   const fontSize = layout.cellH - 6;
   ctx.font = `${fontSize}px monospace`;
@@ -867,218 +960,86 @@ async function waitForTerminalCanvas(term, host) {
   return { termCanvas, measured };
 }
 
-export async function composeExportPNG({ screen, replayBytes, opts, backgroundFile, viewerMetrics }) {
-  const options = validateExportOptions(opts);
-  const layout = computeLayout(screen, options, viewerMetrics);
+async function composeExportRasterCanvas({
+  screen,
+  replayBytes,
+  opts,
+  backgroundFile,
+  viewerMetrics,
+  skipDownscale = false,
+}) {
   let bgImage = null;
+  const options = validateExportOptions(opts);
   if (options.background_mode === BACKGROUND_CUSTOM && backgroundFile) {
     bgImage = await loadImageFromFile(backgroundFile);
   }
 
-  const host = document.createElement("div");
-  host.style.cssText = "position:fixed;left:0;top:0;opacity:0;pointer-events:none;z-index:-1;";
-  document.body.appendChild(host);
-
-  const { term, removeLigatures } = loadExportTerminal(host, layout, options, viewerMetrics);
+  const prepared = await prepareExportTerminal({ screen, replayBytes, opts, viewerMetrics });
   try {
-    if (replayBytes?.length) {
-      await writeTerminal(term, replayBytes);
-    } else if (screen?.lines) {
-      await writeTerminal(term, screen.lines.join("\n"));
-    }
-    term.refresh(0, term.rows - 1);
-    if (document.fonts?.ready) {
-      await document.fonts.ready;
-    }
-
-    const { termCanvas, measured } = await waitForTerminalCanvas(term, host);
-    let termW = layout.termW;
-    let termH = layout.termH;
-    if (viewerMetrics?.termW > 0 && viewerMetrics?.termH > 0) {
-      termW = Math.round(viewerMetrics.termW * layout.renderScale);
-      termH = Math.round(viewerMetrics.termH * layout.renderScale);
-    } else if (measured.width > 0 && measured.height > 0) {
-      termW = measured.width;
-      termH = measured.height;
-    }
-    const renderLayout = finalizeRenderLayout(layout, options, termW, termH);
-
+    const { renderLayout, termCanvas, termW, termH, measured } = prepared;
     const out = document.createElement("canvas");
     out.width = renderLayout.renderOuterW;
     out.height = renderLayout.renderOuterH;
     const ctx = out.getContext("2d");
-    drawBackground(ctx, renderLayout, options, bgImage);
+    drawBackground(ctx, renderLayout, prepared.options, bgImage);
     const chromeAssets =
-      resolveOsStyle(options) === OS_STYLE_WINDOWS ? { favicon: await loadFaviconImage() } : {};
-    drawChrome(ctx, renderLayout, options, chromeAssets);
+      resolveOsStyle(prepared.options) === OS_STYLE_WINDOWS ? { favicon: await loadFaviconImage() } : {};
+    drawChrome(ctx, renderLayout, prepared.options, chromeAssets);
     if (termCanvas) {
       drawExportTerminal(ctx, { ...measured, width: termW, height: termH }, renderLayout);
     } else {
       drawTerminalFallback(ctx, screen, renderLayout);
     }
-    drawGridLabelOverlay(ctx, renderLayout, options);
+    drawGridLabelOverlay(ctx, renderLayout, prepared.options);
 
-    const exportCanvas =
-      renderLayout.outerW === out.width && renderLayout.outerH === out.height
-        ? out
-        : downscaleCanvas(out, renderLayout.outerW, renderLayout.outerH);
-
-    const blob = await new Promise((resolve, reject) => {
-      exportCanvas.toBlob((b) => (b ? resolve(b) : reject(new Error("png encode failed"))), "image/png");
-    });
-    return blob;
+    const needsDownscale =
+      !skipDownscale && (renderLayout.outerW !== out.width || renderLayout.outerH !== out.height);
+    const canvas = needsDownscale ? downscaleCanvas(out, renderLayout.outerW, renderLayout.outerH) : out;
+    return { canvas, layout: renderLayout };
   } finally {
-    removeLigatures?.();
-    term.dispose();
-    host.remove();
+    prepared.dispose();
   }
+}
+
+export async function composeExportPNG({ screen, replayBytes, opts, backgroundFile, viewerMetrics }) {
+  const { canvas } = await composeExportRasterCanvas({
+    screen,
+    replayBytes,
+    opts,
+    backgroundFile,
+    viewerMetrics,
+  });
+  return await new Promise((resolve, reject) => {
+    canvas.toBlob((b) => (b ? resolve(b) : reject(new Error("png encode failed"))), "image/png");
+  });
 }
 
 export async function composeExport({ screen, replayBytes, opts, backgroundFile, viewerMetrics }) {
   const options = validateExportOptions(opts);
   if (options.format === FORMAT_SVG) {
-    return composeExportSVG({ screen, opts: options, viewerMetrics });
+    return composeExportSVG({ screen, replayBytes, opts: options, backgroundFile, viewerMetrics });
   }
   return composeExportPNG({ screen, replayBytes, opts: options, backgroundFile, viewerMetrics });
 }
 
-export async function composeExportSVG({ screen, opts, viewerMetrics }) {
+export async function composeExportSVG({ screen, replayBytes, opts, backgroundFile, viewerMetrics }) {
   const options = validateExportOptions({ ...opts, format: FORMAT_SVG });
-  const layout = computeLayout(screen, options, viewerMetrics);
-  const lines = screen?.lines || [];
-  const osChrome = isOsChrome(options);
-  const osStyle = resolveOsStyle(options);
-  let svg = `<?xml version="1.0" encoding="UTF-8"?><svg xmlns="http://www.w3.org/2000/svg" width="${layout.outerW}" height="${layout.outerH}" viewBox="0 0 ${layout.renderOuterW} ${layout.renderOuterH}">`;
-
-  if (options.background_mode === BACKGROUND_PRESET) {
-    const spec = BACKGROUND_PRESETS[options.background_preset] || BACKGROUND_PRESETS.slate;
-    if (spec.kind === "solid") {
-      svg += `<rect width="100%" height="100%" fill="${spec.color}"/>`;
-    } else {
-      svg += `<defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="${spec.start}"/><stop offset="100%" stop-color="${spec.end}"/></linearGradient></defs><rect width="100%" height="100%" fill="url(#g)"/>`;
-    }
-  }
-
-  if (osChrome && osStyle === OS_STYLE_MACOS) {
-    const palette = macosChromePalette(options, layout.renderScale);
-    const radius = layout.windowRadius;
-    const titleBar = layout.titleBar;
-    const dot = palette.trafficLightSize;
-    const gap = palette.trafficLightGap;
-    let x = palette.trafficLightInsetX;
-    const cy = palette.trafficLightInsetY + dot / 2;
-    svg += `<rect x="0" y="0" width="${layout.renderOuterW}" height="${layout.renderOuterH}" rx="${radius}" fill="${palette.windowBg}" stroke="${palette.border}" stroke-width="0.5"/>`;
-    for (const color of palette.trafficLights) {
-      svg += `<circle cx="${x + dot / 2}" cy="${cy}" r="${dot / 2}" fill="${color}" stroke="${palette.trafficRing}" stroke-width="0.5"/>`;
-      x += dot + gap;
-    }
-    svg += `<text x="${layout.renderOuterW / 2}" y="${titleBar * 0.62}" text-anchor="middle" fill="${palette.titleColor}" font-family="-apple-system,BlinkMacSystemFont,&quot;SF Pro Text&quot;,system-ui,sans-serif" font-size="${palette.titleFontSize}" font-weight="500">${escapeXml(options.title || "Terminal")}</text>`;
-  } else if (osChrome && osStyle === OS_STYLE_WINDOWS) {
-    const palette = windowsChromePalette(options, layout.renderScale);
-    const radius = layout.windowRadius;
-    const titleBar = layout.titleBar;
-    const btnW = palette.captionButtonWidth;
-    const icon = 4 * palette.iconScale;
-    const appName = palette.appName;
-    const tabX = palette.tabRowMarginX;
-    const tabY = palette.tabRowMarginTop;
-    const tabW = palette.tabWidth;
-    const tabH = titleBar - palette.tabRowMarginTop;
-    const tabR = palette.tabTopRadius;
-    const iconX = tabX + palette.tabPaddingX;
-    const iconY = tabY + (tabH - palette.tabIconSize) / 2;
-    const textX = iconX + palette.tabIconSize + palette.tabIconGap;
-    const closeCx = tabX + tabW - palette.tabPaddingX - palette.tabCloseButtonWidth / 2;
-    const closeIcon = 3.5 * palette.iconScale;
-    const controlsCy = tabY + tabH / 2;
-    const controlsX = tabX + tabW;
-    const newTabCx = controlsX + palette.newTabButtonWidth / 2;
-    const menuCx = controlsX + palette.newTabButtonWidth + palette.tabMenuButtonWidth / 2;
-    const plus = 5 * palette.iconScale;
-    const chev = 3.5 * palette.iconScale;
-    svg += `<rect x="0" y="0" width="${layout.renderOuterW}" height="${layout.renderOuterH}" rx="${radius}" fill="${palette.windowBg}" stroke="${palette.border}" stroke-width="0.5"/>`;
-    svg += `<rect x="0" y="0" width="${layout.renderOuterW}" height="${titleBar}" fill="${palette.tabRowBg}"/>`;
-    svg += `<defs><clipPath id="wt-tab-clip"><path d="${windowsTabTopPathSvg(tabX, tabY, tabW, tabH, tabR)}"/></clipPath></defs>`;
-    svg += `<path d="${windowsTabTopPathSvg(tabX, tabY, tabW, tabH, tabR)}" fill="${palette.tabActiveBg}"/>`;
-    svg += `<rect x="${tabX}" y="${tabY}" width="${tabW}" height="${Math.max(1, palette.iconScale)}" fill="${palette.tabActiveTopAccent}" clip-path="url(#wt-tab-clip)"/>`;
-    svg += tuileFaviconSvg(iconX, iconY, palette.tabIconSize);
-    svg += `<text x="${textX}" y="${tabY + tabH / 2}" dominant-baseline="middle" fill="${palette.tabText}" font-family=&quot;Segoe UI Variable&quot;,&quot;Segoe UI&quot;,system-ui,sans-serif font-size="${palette.titleFontSize}" font-weight="400">${escapeXml(appName)}</text>`;
-    svg += `<line x1="${closeCx - closeIcon}" y1="${tabY + tabH / 2 - closeIcon}" x2="${closeCx + closeIcon}" y2="${tabY + tabH / 2 + closeIcon}" stroke="${palette.captionColor}" stroke-width="${Math.max(1, palette.iconScale * 0.75)}" stroke-linecap="round"/>`;
-    svg += `<line x1="${closeCx + closeIcon}" y1="${tabY + tabH / 2 - closeIcon}" x2="${closeCx - closeIcon}" y2="${tabY + tabH / 2 + closeIcon}" stroke="${palette.captionColor}" stroke-width="${Math.max(1, palette.iconScale * 0.75)}" stroke-linecap="round"/>`;
-    svg += `<line x1="${newTabCx - plus}" y1="${controlsCy}" x2="${newTabCx + plus}" y2="${controlsCy}" stroke="${palette.captionColor}" stroke-width="${Math.max(1, palette.iconScale * 0.75)}" stroke-linecap="round"/>`;
-    svg += `<line x1="${newTabCx}" y1="${controlsCy - plus}" x2="${newTabCx}" y2="${controlsCy + plus}" stroke="${palette.captionColor}" stroke-width="${Math.max(1, palette.iconScale * 0.75)}" stroke-linecap="round"/>`;
-    svg += `<polyline points="${menuCx - chev},${controlsCy - chev * 0.35} ${menuCx},${controlsCy + chev * 0.65} ${menuCx + chev},${controlsCy - chev * 0.35}" fill="none" stroke="${palette.captionColor}" stroke-width="${Math.max(1, palette.iconScale * 0.75)}" stroke-linecap="round" stroke-linejoin="round"/>`;
-    const kinds = ["minimize", "maximize", "close"];
-    for (let i = 0; i < kinds.length; i++) {
-      const x = layout.renderOuterW - (kinds.length - i) * btnW;
-      const cx = x + btnW / 2;
-      const cy = titleBar / 2;
-      if (kinds[i] === "minimize") {
-        svg += `<line x1="${cx - icon}" y1="${cy}" x2="${cx + icon}" y2="${cy}" stroke="${palette.captionColor}" stroke-width="${Math.max(1, palette.iconScale * 0.75)}"/>`;
-      } else if (kinds[i] === "maximize") {
-        svg += `<rect x="${cx - icon}" y="${cy - icon}" width="${icon * 2}" height="${icon * 2}" fill="none" stroke="${palette.captionColor}" stroke-width="${Math.max(1, palette.iconScale * 0.75)}"/>`;
-      } else {
-        svg += `<line x1="${cx - icon}" y1="${cy - icon}" x2="${cx + icon}" y2="${cy + icon}" stroke="${palette.captionColor}" stroke-width="${Math.max(1, palette.iconScale * 0.75)}"/>`;
-        svg += `<line x1="${cx + icon}" y1="${cy - icon}" x2="${cx - icon}" y2="${cy + icon}" stroke="${palette.captionColor}" stroke-width="${Math.max(1, palette.iconScale * 0.75)}"/>`;
-      }
-    }
-  } else if (osChrome) {
-    const s = layout.renderScale;
-    const stroke = STROKE;
-    const dash = `${5 * s} ${4 * s}`;
-    if (options.background_mode !== BACKGROUND_CUSTOM) {
-      svg += `<rect width="${layout.renderOuterW}" height="${layout.renderOuterH}" fill="${FRAME_FILL}" stroke="${stroke}" stroke-width="${2 * s}" stroke-dasharray="${dash}"/>`;
-    } else {
-      svg += `<rect width="${layout.renderOuterW}" height="${layout.renderOuterH}" fill="none" stroke="${stroke}" stroke-width="${2 * s}" stroke-dasharray="${dash}"/>`;
-    }
-    const y = layout.pad + layout.title;
-    svg += `<line x1="${layout.pad}" y1="${y}" x2="${layout.renderOuterW - layout.pad}" y2="${y}" stroke="${stroke}" stroke-width="${2 * s}" stroke-dasharray="${dash}"/>`;
-    const dot = 10 * s;
-    const gap = 8 * s;
-    let x = layout.pad + 10 * s;
-    const cy = layout.pad + layout.title / 2;
-    for (const color of TRAFFIC_LIGHTS) {
-      svg += `<circle cx="${x + dot / 2}" cy="${cy}" r="${dot / 2}" fill="${color}"/>`;
-      x += dot + gap;
-    }
-    svg += `<text x="${layout.renderOuterW / 2}" y="${layout.pad + layout.title * 0.62}" text-anchor="middle" fill="#e4e4e7" font-family="system-ui" font-size="${12 * s}" font-weight="600">${escapeXml(options.title || "tuile")}</text>`;
-  } else {
-    if (options.background_mode !== BACKGROUND_CUSTOM) {
-      svg += `<rect x="0" y="0" width="${layout.frameW}" height="${layout.frameH}" fill="${layout.termBg || TERM_BG}"/>`;
-    }
-    svg += `<rect x="0" y="0" width="${layout.frameW}" height="${layout.frameH}" rx="${layout.radius}" fill="${options.background_mode === BACKGROUND_CUSTOM ? "none" : layout.frameBg}" stroke="${layout.border}" stroke-width="1"/>`;
-  }
-
-  svg += `<g transform="translate(${layout.termX},${layout.termY})"><rect width="${layout.termW}" height="${layout.termH}" fill="${TERM_BG}"/>`;
-  const termFontSize = layout.fontPx * layout.renderScale;
-  lines.forEach((line, y) => {
-    svg += `<text x="4" y="${(y + 1) * layout.cellH - 4}" fill="#e4e4e4" font-family="monospace" font-size="${termFontSize}">${escapeXml(line)}</text>`;
+  const { canvas, layout } = await composeExportRasterCanvas({
+    screen,
+    replayBytes,
+    opts: options,
+    backgroundFile,
+    viewerMetrics,
+    // Keep supersampled pixels; SVG viewport stays at logical 1x size so viewers scale down sharply.
+    skipDownscale: true,
   });
-  svg += `</g>`;
-
-  if (!osChrome && options.show_grid_size) {
-    const label = `${layout.cols}×${layout.rows}`;
-    const badge = gridLabelMetrics(layout.renderScale);
-    const anchorX = layout.frameW;
-    const anchorY = layout.frameH;
-    const boxW = label.length * badge.fontSize * 0.62 + badge.padX * 2;
-    const boxH = badge.fontSize + badge.padY * 2;
-    const lx = anchorX - boxW - badge.offsetX;
-    const ly = anchorY - boxH - badge.offsetY;
-    svg += `<rect x="${lx}" y="${ly}" width="${boxW}" height="${boxH}" rx="${badge.radius}" fill="${layout.labelBg}" stroke="${layout.labelBorder}" stroke-width="1"/>`;
-    svg += `<text x="${lx + badge.padX}" y="${ly + badge.padY + badge.fontSize * 0.88}" fill="${layout.labelText}" font-family="JetBrains Mono, ui-monospace, monospace" font-size="${badge.fontSize}" font-weight="500">${escapeXml(label)}</text>`;
-  }
-
-  svg += `</svg>`;
+  const embedFill = svgEmbedBackgroundFill(options);
+  const embedCanvas = embedFill ? flattenCanvasForSvgEmbed(canvas, embedFill) : canvas;
+  const logicalW = layout.outerW;
+  const logicalH = layout.outerH;
+  const dataUrl = await canvasToDataUrl(embedCanvas, "image/png");
+  const svg = wrapRasterSvg(dataUrl, logicalW, logicalH);
   return new Blob([svg], { type: "image/svg+xml" });
-}
-
-function escapeXml(s) {
-  return String(s)
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
 }
 
 export function downloadBlob(blob, filename) {

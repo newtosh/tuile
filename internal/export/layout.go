@@ -242,3 +242,43 @@ func maxInt(a, b int) int {
 	}
 	return b
 }
+
+// ScaleLayoutToOuter converts render-space layout into final SVG/output pixels.
+// Gwenview and other Qt SVG renderers mishandle nested transform scale groups.
+func ScaleLayoutToOuter(layout Layout) Layout {
+	if layout.Downscale <= 1 {
+		return layout
+	}
+	d := layout.Downscale
+	round := func(v int) int {
+		if v == 0 {
+			return 0
+		}
+		return (v + d/2) / d
+	}
+	layout.RenderScale = round(layout.RenderScale)
+	layout.CellW = round(layout.CellW)
+	layout.CellH = round(layout.CellH)
+	layout.TermW = round(layout.TermW)
+	layout.TermH = round(layout.TermH)
+	layout.ChromePad = round(layout.ChromePad)
+	layout.TitleBar = round(layout.TitleBar)
+	layout.InnerGap = round(layout.InnerGap)
+	layout.FramePad = round(layout.FramePad)
+	layout.FrameRadius = round(layout.FrameRadius)
+	layout.FrameW = round(layout.FrameW)
+	layout.FrameH = round(layout.FrameH)
+	layout.WindowRadius = round(layout.WindowRadius)
+	layout.Border = round(layout.Border)
+	layout.ScenePad = round(layout.ScenePad)
+	layout.ChromeW = round(layout.ChromeW)
+	layout.ChromeH = round(layout.ChromeH)
+	layout.ChromeOffsetX = round(layout.ChromeOffsetX)
+	layout.ChromeOffsetY = round(layout.ChromeOffsetY)
+	layout.TermOffsetX = round(layout.TermOffsetX)
+	layout.TermOffsetY = round(layout.TermOffsetY)
+	layout.RenderOuterW = layout.OuterW
+	layout.RenderOuterH = layout.OuterH
+	layout.Downscale = 1
+	return layout
+}

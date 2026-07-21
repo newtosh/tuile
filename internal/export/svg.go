@@ -2,8 +2,11 @@ package export
 
 import (
 	"bytes"
+	"encoding/base64"
 	"fmt"
 	"html"
+	"image/color"
+	"net/http"
 	"strings"
 
 	"github.com/newtosh/tuile/internal/term"
@@ -11,22 +14,42 @@ import (
 
 // RenderSVG returns an SVG document for the composed export.
 func RenderSVG(snap term.ScreenSnapshot, opts Options) ([]byte, error) {
+	return RenderSVGWithBackground(snap, opts, nil)
+}
+
+// RenderSVGWithBackground returns SVG, optionally embedding a custom backdrop.
+func RenderSVGWithBackground(snap term.ScreenSnapshot, opts Options, customBackground []byte) ([]byte, error) {
 	if err := opts.Validate(); err != nil {
 		return nil, err
 	}
-	layout := ComputeLayout(snap, opts)
+	layout := ScaleLayoutToOuter(ComputeLayout(snap, opts))
 	var buf bytes.Buffer
 	buf.WriteString(`<?xml version="1.0" encoding="UTF-8"?>`)
-	fmt.Fprintf(&buf, `<svg xmlns="http://www.w3.org/2000/svg" width="%d" height="%d" viewBox="0 0 %d %d">`, layout.OuterW, layout.OuterH, layout.RenderOuterW, layout.RenderOuterH)
-	writeSVGBackground(&buf, layout, opts)
+	writeSVGOpen(&buf, layout)
+	writeSVGBackground(&buf, layout, opts, customBackground)
 	writeSVGChrome(&buf, layout, opts)
 	writeSVGTerminal(&buf, snap, layout, opts)
 	writeSVGGridLabel(&buf, layout, opts)
-	buf.WriteString(`</svg>`)
+	writeSVGClose(&buf, layout)
 	return buf.Bytes(), nil
 }
 
-func writeSVGBackground(buf *bytes.Buffer, layout Layout, opts Options) {
+func writeSVGOpen(buf *bytes.Buffer, layout Layout) {
+	fmt.Fprintf(buf, `<svg xmlns="http://www.w3.org/2000/svg" width="%d" height="%d" viewBox="0 0 %d %d">`, layout.OuterW, layout.OuterH, layout.OuterW, layout.OuterH)
+}
+
+func writeSVGClose(buf *bytes.Buffer, layout Layout) {
+	buf.WriteString(`</svg>`)
+}
+
+func svgChromeRect(layout Layout) (x, y, w, h int) {
+	if layout.ScenePad > 0 {
+		return layout.ChromeOffsetX, layout.ChromeOffsetY, layout.ChromeW, layout.ChromeH
+	}
+	return 0, 0, layout.RenderOuterW, layout.RenderOuterH
+}
+
+func writeSVGBackground(buf *bytes.Buffer, layout Layout, opts Options, customBackground []byte) {
 	switch opts.BackgroundMode {
 	case BackgroundTransparent:
 		return
@@ -42,6 +65,16 @@ func writeSVGBackground(buf *bytes.Buffer, layout Layout, opts Options) {
 		id := "bg-grad"
 		fmt.Fprintf(buf, `<defs><linearGradient id="%s" x1="0%%" y1="0%%" x2="100%%" y2="100%%"><stop offset="0%%" stop-color="%s"/><stop offset="100%%" stop-color="%s"/></linearGradient></defs>`, id, html.EscapeString(spec.Start), html.EscapeString(spec.End))
 		fmt.Fprintf(buf, `<rect width="%d" height="%d" fill="url(#%s)"/>`, layout.RenderOuterW, layout.RenderOuterH, id)
+	case BackgroundCustom:
+		if len(customBackground) == 0 {
+			return
+		}
+		mime := http.DetectContentType(customBackground)
+		if mime == "application/octet-stream" {
+			mime = "image/png"
+		}
+		encoded := base64.StdEncoding.EncodeToString(customBackground)
+		fmt.Fprintf(buf, `<image x="0" y="0" width="%d" height="%d" preserveAspectRatio="xMidYMid slice" href="data:%s;base64,%s"/>`, layout.RenderOuterW, layout.RenderOuterH, mime, encoded)
 	}
 }
 
@@ -58,12 +91,19 @@ func writeSVGChrome(buf *bytes.Buffer, layout Layout, opts Options) {
 		return
 	}
 	accent := ThemeChromeAccentFor(opts)
+	ox, oy, w, h := svgChromeRect(layout)
+	frameW := layout.FrameW
+	frameH := layout.FrameH
+	if frameW > 0 && layout.ScenePad == 0 {
+		w = frameW
+		h = frameH
+	}
 	if opts.BackgroundMode != BackgroundCustom {
-		fmt.Fprintf(buf, `<rect x="0" y="0" width="%d" height="%d" fill="#0a0a0a"/>`, layout.FrameW, layout.FrameH)
-		fmt.Fprintf(buf, `<rect x="0" y="0" width="%d" height="%d" rx="%d" fill="%s" stroke="%s" stroke-width="1"/>`, layout.FrameW, layout.FrameH, layout.FrameRadius, html.EscapeString(accent.FrameBg), html.EscapeString(accent.Border))
+		fmt.Fprintf(buf, `<rect x="%d" y="%d" width="%d" height="%d" fill="#0a0a0a"/>`, ox, oy, w, h)
+		fmt.Fprintf(buf, `<rect x="%d" y="%d" width="%d" height="%d" rx="%d" fill="%s" stroke="%s" stroke-width="1"/>`, ox, oy, w, h, layout.FrameRadius, html.EscapeString(accent.FrameBg), html.EscapeString(accent.Border))
 		return
 	}
-	fmt.Fprintf(buf, `<rect x="0" y="0" width="%d" height="%d" rx="%d" fill="none" stroke="%s" stroke-width="1"/>`, layout.FrameW, layout.FrameH, layout.FrameRadius, html.EscapeString(accent.Border))
+	fmt.Fprintf(buf, `<rect x="%d" y="%d" width="%d" height="%d" rx="%d" fill="none" stroke="%s" stroke-width="1"/>`, ox, oy, w, h, layout.FrameRadius, html.EscapeString(accent.Border))
 }
 
 func writeSVGGridLabel(buf *bytes.Buffer, layout Layout, opts Options) {
@@ -77,8 +117,15 @@ func writeSVGGridLabel(buf *bytes.Buffer, layout Layout, opts Options) {
 	padY := 2 * layout.RenderScale
 	boxW := len(label)*fontSize*6/10 + padX*2
 	boxH := fontSize + padY*2
-	anchorX := layout.FrameW
-	anchorY := layout.FrameH
+	ox, oy, cw, ch := svgChromeRect(layout)
+	frameW := layout.FrameW
+	frameH := layout.FrameH
+	if frameW > 0 && layout.ScenePad == 0 {
+		cw = frameW
+		ch = frameH
+	}
+	anchorX := ox + cw
+	anchorY := oy + ch
 	lx := anchorX - boxW - 6*layout.RenderScale
 	ly := anchorY - boxH - 5*layout.RenderScale
 	fmt.Fprintf(buf, `<rect x="%d" y="%d" width="%d" height="%d" rx="%d" fill="%s" stroke="%s" stroke-width="1"/>`, lx, ly, boxW, boxH, 4*layout.RenderScale, html.EscapeString(accent.LabelBg), html.EscapeString(accent.LabelBorder))
@@ -91,63 +138,67 @@ func writeSVGWireframeChrome(buf *bytes.Buffer, layout Layout, opts Options) {
 	if opts.BackgroundMode != BackgroundCustom {
 		fill = "#16161a"
 	}
-	fmt.Fprintf(buf, `<rect width="%d" height="%d" fill="%s" stroke="%s" stroke-width="%d" stroke-dasharray="5 4"/>`, layout.RenderOuterW, layout.RenderOuterH, fill, stroke, 2*layout.RenderScale)
-	fmt.Fprintf(buf, `<line x1="%d" y1="%d" x2="%d" y2="%d" stroke="%s" stroke-width="%d" stroke-dasharray="5 4"/>`, layout.ChromePad, layout.ChromePad+layout.TitleBar, layout.RenderOuterW-layout.ChromePad, layout.ChromePad+layout.TitleBar, stroke, 2*layout.RenderScale)
+	ox, oy, w, h := svgChromeRect(layout)
+	inset := layout.ChromePad
+	fmt.Fprintf(buf, `<rect x="%d" y="%d" width="%d" height="%d" fill="%s" stroke="%s" stroke-width="%d" stroke-dasharray="5 4"/>`, ox, oy, w, h, fill, stroke, 2*layout.RenderScale)
+	fmt.Fprintf(buf, `<line x1="%d" y1="%d" x2="%d" y2="%d" stroke="%s" stroke-width="%d" stroke-dasharray="5 4"/>`, ox+inset, oy+inset+layout.TitleBar, ox+w-inset, oy+inset+layout.TitleBar, stroke, 2*layout.RenderScale)
 	dot := 10 * layout.RenderScale
 	gap := 8 * layout.RenderScale
-	left := layout.ChromePad + 10*layout.RenderScale
-	cy := layout.ChromePad + layout.TitleBar/2
+	left := ox + inset + 10*layout.RenderScale
+	cy := oy + inset + layout.TitleBar/2
 	colors := []string{"#ff5f57", "#febc2e", "#28c840"}
 	for i, col := range colors {
 		dx := left + i*(dot+gap)
 		fmt.Fprintf(buf, `<circle cx="%d" cy="%d" r="%d" fill="%s"/>`, dx+dot/2, cy, dot/2, col)
 	}
-	fmt.Fprintf(buf, `<text x="%d" y="%d" text-anchor="middle" fill="#e4e4e7" font-family="system-ui,sans-serif" font-size="%d" font-weight="600">%s</text>`, layout.RenderOuterW/2, layout.ChromePad+layout.TitleBar*2/3, 12*layout.RenderScale, html.EscapeString(opts.Title))
+	fmt.Fprintf(buf, `<text x="%d" y="%d" text-anchor="middle" fill="#e4e4e7" font-family="system-ui,sans-serif" font-size="%d" font-weight="600">%s</text>`, ox+w/2, oy+inset+layout.TitleBar*2/3, 12*layout.RenderScale, html.EscapeString(opts.Title))
+}
+
+func rgbaSVG(c color.RGBA) string {
+	return fmt.Sprintf("rgb(%d,%d,%d)", c.R, c.G, c.B)
 }
 
 func writeSVGMacOSChrome(buf *bytes.Buffer, layout Layout, opts Options) {
 	light := opts.Theme == "light"
-	windowBg := "#0a0a0a"
+	windowBg := rgbaSVG(MacOSWindowBg(opts))
 	border := "rgba(0,0,0,0.35)"
 	titleColor := "rgba(245,245,247,0.72)"
 	if light {
-		windowBg = "#ffffff"
 		border = "rgba(0,0,0,0.12)"
 		titleColor = "rgba(60,60,67,0.72)"
 	}
+	ox, oy, w, h := svgChromeRect(layout)
 	radius := layout.WindowRadius
 	titleBar := layout.TitleBar
 	dot := MacOSTrafficLightSize() * layout.RenderScale
 	gap := MacOSTrafficLightGap() * layout.RenderScale
-	left := MacOSTrafficLightInset() * layout.RenderScale
-	top := MacOSTrafficLightInset() * layout.RenderScale
+	left := ox + MacOSTrafficLightInset()*layout.RenderScale
+	top := oy + MacOSTrafficLightInset()*layout.RenderScale
 	cy := top + dot/2
-	fmt.Fprintf(buf, `<rect x="0" y="0" width="%d" height="%d" rx="%d" fill="%s" stroke="%s" stroke-width="0.5"/>`, layout.RenderOuterW, layout.RenderOuterH, radius, windowBg, border)
+	fmt.Fprintf(buf, `<rect x="%d" y="%d" width="%d" height="%d" rx="%d" fill="%s" stroke="%s" stroke-width="0.5"/>`, ox, oy, w, h, radius, windowBg, border)
 	colors := []string{"#F96057", "#F8CE52", "#5FCF65"}
 	for i, col := range colors {
 		dx := left + i*(dot+gap)
 		fmt.Fprintf(buf, `<circle cx="%d" cy="%d" r="%d" fill="%s" stroke="rgba(0,0,0,0.1)" stroke-width="0.5"/>`, dx+dot/2, cy, dot/2, col)
 	}
 	fontSize := 13 * layout.RenderScale
-	fmt.Fprintf(buf, `<text x="%d" y="%d" text-anchor="middle" fill="%s" font-family="-apple-system,BlinkMacSystemFont,&quot;SF Pro Text&quot;,system-ui,sans-serif" font-size="%d" font-weight="500">%s</text>`, layout.RenderOuterW/2, int(float64(titleBar)*0.62), titleColor, fontSize, html.EscapeString(opts.Title))
+	fmt.Fprintf(buf, `<text x="%d" y="%d" text-anchor="middle" fill="%s" font-family="-apple-system,BlinkMacSystemFont,&quot;SF Pro Text&quot;,system-ui,sans-serif" font-size="%d" font-weight="500">%s</text>`, ox+w/2, oy+int(float64(titleBar)*0.62), titleColor, fontSize, html.EscapeString(opts.Title))
 }
 
 func writeSVGWindowsChrome(buf *bytes.Buffer, layout Layout, opts Options) {
 	light := opts.Theme == "light"
-	windowBg := "#0C0C0C"
-	tabRowBg := "#333333"
-	tabAccent := "rgba(255,255,255,0.14)"
+	windowBg := rgbaSVG(WindowsWindowBg(opts))
+	tabRowBg := rgbaSVG(WindowsTabRowBg(opts))
+	tabAccent := rgbaSVG(WindowsTabActiveTopAccent(opts))
 	border := "rgba(255,255,255,0.06)"
 	tabText := "#CCCCCC"
 	captionColor := "rgba(255,255,255,0.9)"
 	if light {
-		windowBg = "#F3F3F3"
-		tabRowBg = "#ECECEC"
-		tabAccent = "rgba(0,0,0,0.12)"
 		border = "rgba(0,0,0,0.12)"
 		tabText = "#1A1A1A"
 		captionColor = "rgba(0,0,0,0.9)"
 	}
+	ox, oy, w, h := svgChromeRect(layout)
 	radius := layout.WindowRadius
 	titleBar := layout.TitleBar
 	btnW := WindowsCaptionButtonWidth() * layout.RenderScale
@@ -156,10 +207,10 @@ func writeSVGWindowsChrome(buf *bytes.Buffer, layout Layout, opts Options) {
 	if thickness < 1 {
 		thickness = 1
 	}
-	fmt.Fprintf(buf, `<rect x="0" y="0" width="%d" height="%d" rx="%d" fill="%s" stroke="%s" stroke-width="0.5"/>`, layout.RenderOuterW, layout.RenderOuterH, radius, windowBg, border)
+	fmt.Fprintf(buf, `<rect x="%d" y="%d" width="%d" height="%d" rx="%d" fill="%s" stroke="%s" stroke-width="0.5"/>`, ox, oy, w, h, radius, windowBg, border)
 	scale := layout.RenderScale
-	tabX := WindowsTabRowMarginX() * scale
-	tabY := WindowsTabRowMarginTop() * scale
+	tabX := ox + WindowsTabRowMarginX()*scale
+	tabY := oy + WindowsTabRowMarginTop()*scale
 	tabPad := WindowsTabPaddingX() * scale
 	tabW := WindowsTabWidth() * scale
 	tabH := titleBar - WindowsTabRowMarginTop()*scale
@@ -179,7 +230,7 @@ func writeSVGWindowsChrome(buf *bytes.Buffer, layout Layout, opts Options) {
 	menuCx := controlsX + WindowsNewTabButtonWidth()*scale + WindowsTabMenuButtonWidth()*scale/2
 	plus := 5 * scale
 	chev := int(3.5*float64(scale) + 0.5)
-	fmt.Fprintf(buf, `<rect x="0" y="0" width="%d" height="%d" fill="%s"/>`, layout.RenderOuterW, titleBar, tabRowBg)
+	fmt.Fprintf(buf, `<rect x="%d" y="%d" width="%d" height="%d" fill="%s"/>`, ox, oy, w, titleBar, tabRowBg)
 	fmt.Fprintf(buf, `<path d="M%d %d L%d %d Q%d %d %d %d L%d %d Q%d %d %d %d L%d %d Z" fill="%s"/>`, tabX, tabY+tabH, tabX, tabY+tabR, tabX, tabY, tabX+tabR, tabY, tabX+tabW-tabR, tabY, tabX+tabW, tabY, tabX+tabW, tabY+tabR, tabX+tabW, tabY+tabH, windowBg)
 	fmt.Fprintf(buf, `<rect x="%d" y="%d" width="%d" height="%d" fill="%s"/>`, tabX, tabY, tabW, maxInt(1, scale), tabAccent)
 	fmt.Fprintf(buf, `<g transform="translate(%d,%d) scale(%g)"><rect width="32" height="32" rx="6" fill="#0c0c0e"/><rect x="6" y="6" width="9" height="9" rx="1.5" fill="#e8a54b"/><rect x="17" y="6" width="9" height="9" rx="1.5" fill="#e8a54b" opacity="0.82"/><rect x="6" y="17" width="9" height="9" rx="1.5" fill="#e8a54b" opacity="0.82"/><rect x="17" y="17" width="9" height="9" rx="1.5" fill="#e8a54b"/></g>`, iconX, iconY, float64(iconSize)/32)
@@ -191,9 +242,9 @@ func writeSVGWindowsChrome(buf *bytes.Buffer, layout Layout, opts Options) {
 	fmt.Fprintf(buf, `<polyline points="%d,%d %d,%d %d,%d" fill="none" stroke="%s" stroke-width="%d" stroke-linecap="round" stroke-linejoin="round"/>`, menuCx-chev, controlsCy-chev*35/100, menuCx, controlsCy+chev*65/100, menuCx+chev, controlsCy-chev*35/100, captionColor, thickness)
 	kinds := []string{"minimize", "maximize", "close"}
 	for i, kind := range kinds {
-		x := layout.RenderOuterW - (len(kinds)-i)*btnW
+		x := ox + w - (len(kinds)-i)*btnW
 		cx := x + btnW/2
-		cy := titleBar / 2
+		cy := oy + titleBar/2
 		switch kind {
 		case "minimize":
 			fmt.Fprintf(buf, `<line x1="%d" y1="%d" x2="%d" y2="%d" stroke="%s" stroke-width="%d"/>`, cx-icon, cy, cx+icon, cy, captionColor, thickness)
@@ -204,10 +255,32 @@ func writeSVGWindowsChrome(buf *bytes.Buffer, layout Layout, opts Options) {
 			fmt.Fprintf(buf, `<line x1="%d" y1="%d" x2="%d" y2="%d" stroke="%s" stroke-width="%d"/>`, cx+icon, cy-icon, cx-icon, cy+icon, captionColor, thickness)
 		}
 	}
+	_ = h
+}
+
+func svgTerminalFontSize(layout Layout) int {
+	scale := layout.RenderScale
+	if scale < 1 {
+		scale = 1
+	}
+	fontSize := layout.CellH - 6*scale
+	if fontSize < 8 {
+		fontSize = 8
+	}
+	return fontSize
+}
+
+func svgTerminalFontFamily(opts Options) string {
+	if opts.FontFamily != "" {
+		return html.EscapeString(opts.FontFamily)
+	}
+	return "monospace"
 }
 
 func writeSVGTerminal(buf *bytes.Buffer, snap term.ScreenSnapshot, layout Layout, opts Options) {
-	fontSize := EffectiveFontPx(opts) * layout.RenderScale
+	fontSize := svgTerminalFontSize(layout)
+	textY := layout.CellH * 4 / 5
+	fontFamily := svgTerminalFontFamily(opts)
 	fmt.Fprintf(buf, `<g transform="translate(%d,%d)">`, layout.TermOffsetX, layout.TermOffsetY)
 	fmt.Fprintf(buf, `<rect width="%d" height="%d" fill="#0a0a0a"/>`, layout.TermW, layout.TermH)
 	if len(snap.Grid) > 0 {
@@ -228,7 +301,7 @@ func writeSVGTerminal(buf *bytes.Buffer, snap term.ScreenSnapshot, layout Layout
 					xOff += layout.CellW
 					continue
 				}
-				fmt.Fprintf(buf, `<text x="%d" y="%d" text-anchor="middle" fill="rgb(%d,%d,%d)" font-family="monospace" font-size="%d">%s</text>`, xOff+layout.CellW/2, y*layout.CellH+fontSize, fr>>8, fgC>>8, fb>>8, fontSize, ch)
+				fmt.Fprintf(buf, `<text x="%d" y="%d" text-anchor="start" fill="rgb(%d,%d,%d)" font-family="%s" font-size="%d">%s</text>`, xOff+2, y*layout.CellH+textY, fr>>8, fgC>>8, fb>>8, fontFamily, fontSize, ch)
 				xOff += layout.CellW
 			}
 		}
@@ -237,7 +310,7 @@ func writeSVGTerminal(buf *bytes.Buffer, snap term.ScreenSnapshot, layout Layout
 			if line == "" {
 				continue
 			}
-			fmt.Fprintf(buf, `<text x="%d" y="%d" fill="#e4e4e4" font-family="monospace" font-size="%d">%s</text>`, 4, y*layout.CellH+fontSize, fontSize, html.EscapeString(line))
+			fmt.Fprintf(buf, `<text x="%d" y="%d" fill="#e4e4e4" font-family="%s" font-size="%d">%s</text>`, 4, y*layout.CellH+textY, fontFamily, fontSize, html.EscapeString(line))
 		}
 	}
 	buf.WriteString(`</g>`)

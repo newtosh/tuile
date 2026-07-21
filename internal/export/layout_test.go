@@ -7,6 +7,22 @@ import (
 	"github.com/newtosh/tuile/internal/term"
 )
 
+func TestScaleLayoutToOuterRemovesDownscale(t *testing.T) {
+	opts := export.DefaultOptions()
+	opts.Scale = 1
+	snap := term.ScreenSnapshot{Cols: 80, Rows: 24, Lines: make([]string, 24)}
+	layout := export.ScaleLayoutToOuter(export.ComputeLayout(snap, opts))
+	if layout.Downscale != 1 {
+		t.Fatalf("downscale = %d want 1", layout.Downscale)
+	}
+	if layout.RenderOuterW != layout.OuterW {
+		t.Fatalf("render outer %dx%d != outer %dx%d", layout.RenderOuterW, layout.RenderOuterH, layout.OuterW, layout.OuterH)
+	}
+	if layout.CellW <= 0 || layout.CellH <= 0 {
+		t.Fatalf("unexpected cell size %dx%d", layout.CellW, layout.CellH)
+	}
+}
+
 func TestComputeLayoutUsesViewerTermDimensions(t *testing.T) {
 	opts := export.DefaultOptions()
 	opts.TermWPx = 1080

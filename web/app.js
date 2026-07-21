@@ -474,6 +474,7 @@ document.addEventListener("keydown", (ev) => {
 const term = new Terminal({
   cursorBlink: true,
   fontSize: observeBaseFont,
+  lineHeight: 1,
   fontFamily: fontSelect?.value || initialFontFamily,
   letterSpacing: 0,
   scrollback: 5000,
@@ -1309,8 +1310,8 @@ function updateGridFrame() {
   const inset = OBSERVE_VIEW_INSET;
   const viewW = terminalWrap.clientWidth - inset * 2;
   const viewH = terminalWrap.clientHeight - inset * 2;
-  const left = inset + Math.max(0, (viewW - width) / 2);
-  const top = inset + Math.max(0, (viewH - height) / 2);
+  const left = inset + (viewW - width) / 2;
+  const top = inset + (viewH - height) / 2;
   const frameLeft = left - GRID_FRAME_PAD;
   const frameTop = top - GRID_FRAME_PAD;
   const frameWidth = width + GRID_FRAME_PAD * 2;
@@ -1335,26 +1336,32 @@ function positionObserveTerminal() {
   if (!termEl) {
     return;
   }
-  const inset = OBSERVE_VIEW_INSET;
-  const viewW = terminalWrap.clientWidth - inset * 2;
-  const viewH = terminalWrap.clientHeight - inset * 2;
 
-  termEl.style.transform = "";
-  clearObserveGridInlineSizes();
-  term.refresh(0, term.rows - 1);
+  const layoutOnce = () => {
+    const inset = OBSERVE_VIEW_INSET;
+    const viewW = terminalWrap.clientWidth - inset * 2;
+    const viewH = terminalWrap.clientHeight - inset * 2;
 
-  const grid = measureTerminalGrid();
-  const width = Math.max(grid.width, termEl.offsetWidth);
-  const height = Math.max(grid.height, termEl.offsetHeight);
-  if (!width || !height) {
-    return;
-  }
+    termEl.style.transform = "";
+    clearObserveGridInlineSizes();
+    term.refresh(0, term.rows - 1);
 
-  // Canvas renderer has no DOM row layout; pin grid metrics so the terminal is visible.
-  applyObserveGridInlineSizes(width, height);
-  termEl.style.marginLeft = `${inset + Math.max(0, (viewW - width) / 2)}px`;
-  termEl.style.marginTop = `${inset + Math.max(0, (viewH - height) / 2)}px`;
-  updateGridFrame();
+    const grid = measureTerminalGrid();
+    const width = Math.max(grid.width, termEl.offsetWidth);
+    const height = Math.max(grid.height, termEl.offsetHeight);
+    if (!width || !height) {
+      return;
+    }
+
+    // Canvas renderer has no DOM row layout; pin grid metrics so the terminal is visible.
+    applyObserveGridInlineSizes(width, height);
+    termEl.style.marginLeft = `${inset + (viewW - width) / 2}px`;
+    termEl.style.marginTop = `${inset + (viewH - height) / 2}px`;
+    updateGridFrame();
+  };
+
+  layoutOnce();
+  requestAnimationFrame(layoutOnce);
 }
 
 function maxFontForTarget(targetW, targetH, { cap } = {}) {
@@ -1404,7 +1411,15 @@ function fitObserveLayout() {
     }
   } else {
     const preferred = parseInt(fontSizeMode, 10) || DEFAULT_FONT_SIZE;
-    best = maxFontForTarget(targetW, targetH, { cap: preferred });
+    const scaledPreferred = Math.min(
+      OBSERVE_FONT_MAX,
+      Math.max(OBSERVE_FONT_MIN, Math.round(preferred * observeZoom))
+    );
+    if (observeZoom > 1) {
+      best = maxFontForTarget(viewW, viewH, { cap: scaledPreferred });
+    } else {
+      best = maxFontForTarget(targetW, targetH, { cap: scaledPreferred });
+    }
   }
 
   positionObserveTerminal();
@@ -1697,7 +1712,7 @@ function connectWS() {
       if (!awaitingInitialSync) {
         return;
       }
-      loadScreenSnapshot()
+      loadScreenSnapshot({ forceFinish: true })
         .then(() => {
           if (!awaitingInitialSync) {
             return;
@@ -2447,8 +2462,8 @@ async function renderExportPreview() {
       format: "png",
     };
     const bgFile = exportBackgroundFile?.files?.[0] || null;
-    const { composeExport } = await import("./export-compositor.js");
-    const blob = await composeExport({
+    const { composeExportPNG } = await import("./export-compositor.js");
+    const blob = await composeExportPNG({
       screen,
       replayBytes,
       opts,

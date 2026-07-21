@@ -94,8 +94,9 @@ sleep 0.2
 
 echo "==> starting tuile serve ($LISTEN)"
 : >"$LOGFILE"
-SHELL="${SHELL:-/usr/bin/zsh}" ./bin/tuile serve --listen "$LISTEN" --force >>"$LOGFILE" 2>&1 &
+nohup env SHELL="${SHELL:-/usr/bin/zsh}" ./bin/tuile serve --listen "$LISTEN" --force >>"$LOGFILE" 2>&1 &
 echo $! >"$PIDFILE"
+disown $! 2>/dev/null || true
 
 wait_for_server
 echo "==> tuile ready at $BASE"
