@@ -28,20 +28,20 @@ Typical uses:
 | **Watch a session** | `http://127.0.0.1:7710/view?session=<id>&token=<token>` |
 | **Automate** | `POST /v1/sessions` → `POST .../input` → poll `GET .../screen` or block on `POST .../wait` |
 | **Test downstream** | See [docs/testing-with-tuile.md](docs/testing-with-tuile.md) for the Go `testkit` package (`github.com/newtosh/tuile/testkit`) |
-| **Install** | `go install github.com/newtosh/tuile/cmd/tuile@latest` — see [docs/adoption.md](docs/adoption.md) |
+| **Install** | `go install github.com/newtosh/tuile/cmd/tuile@latest` — see [Install](#install) |
 
 ## Install
 
 ```bash
 # CLI (pin a release tag in production scripts)
-go install github.com/newtosh/tuile/cmd/tuile@v0.2.1
+go install github.com/newtosh/tuile/cmd/tuile@v0.2.2
 tuile version
 
 # Or download binaries from GitHub Releases
 # https://github.com/newtosh/tuile/releases
 ```
 
-**Downstream Go projects:** `go get github.com/newtosh/tuile@v0.2.1` and import `github.com/newtosh/tuile/testkit` — full guide in [docs/adoption.md](docs/adoption.md).
+**Downstream Go projects:** `go get github.com/newtosh/tuile@v0.2.2` and import `github.com/newtosh/tuile/testkit` — see [docs/testing-with-tuile.md](docs/testing-with-tuile.md).
 
 ## How it works
 
@@ -269,7 +269,7 @@ make test-integration  # integration tests (browser tests need Chrome)
 make build
 ```
 
-See [docs/testing-with-tuile.md](docs/testing-with-tuile.md) for the `testkit` package and CI setup for downstream projects. Adoption and metrics: [docs/adoption.md](docs/adoption.md).
+See [docs/testing-with-tuile.md](docs/testing-with-tuile.md) for the `testkit` package and CI setup for downstream projects.
 
 Engine spike notes: [docs/spike-u0.md](docs/spike-u0.md)
 

@@ -23,4 +23,8 @@ describe("style.css session sidebar", () => {
   it("session list scrolls overflow instead of clipping", () => {
     assert.match(block, /overflow-y\s*:\s*auto/);
   });
+
+  it("collapsed layout hides the session panel", () => {
+    assert.match(css, /#layout\.session-panel-collapsed\s+#session-panel\s*\{[^}]*display\s*:\s*none/);
+  });
 });
