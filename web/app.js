@@ -126,7 +126,7 @@ const OBSERVE_VIEW_INSET = 4;
 const GRID_FRAME_PAD = 14;
 const ZOOM_KEY = "tuile_zoom";
 const ZOOM_MIN = 0.5;
-const ZOOM_MAX = 1.5;
+const ZOOM_MAX = 1;
 const ZOOM_STEP = 0.05;
 const WEBGL_KEY = "tuile_webgl";
 const LEGACY_LIGATURES_KEY = "tuile_ligatures";
@@ -1294,15 +1294,22 @@ function hideGridFrame() {
   }
 }
 
-function updateGridFrame() {
+function observeZoomScale() {
+  return observeZoom < 1 - 0.001 ? observeZoom : 1;
+}
+
+function updateGridFrame(layout = null) {
   if (!terminalGridFrame || controlling || !terminalWrap.classList.contains("observe-mode")) {
     hideGridFrame();
     return;
   }
   const grid = measureTerminalGrid();
   const termEl = terminalElement();
-  const width = Math.max(grid.width, termEl?.offsetWidth ?? 0);
-  const height = Math.max(grid.height, termEl?.offsetHeight ?? 0);
+  const baseW = layout?.width ?? Math.max(grid.width, termEl?.offsetWidth ?? 0);
+  const baseH = layout?.height ?? Math.max(grid.height, termEl?.offsetHeight ?? 0);
+  const zoom = layout?.zoom ?? observeZoomScale();
+  const width = baseW * zoom;
+  const height = baseH * zoom;
   if (!width || !height) {
     hideGridFrame();
     return;
@@ -1341,8 +1348,8 @@ function positionObserveTerminal() {
     const inset = OBSERVE_VIEW_INSET;
     const viewW = terminalWrap.clientWidth - inset * 2;
     const viewH = terminalWrap.clientHeight - inset * 2;
+    const zoom = observeZoomScale();
 
-    termEl.style.transform = "";
     clearObserveGridInlineSizes();
     term.refresh(0, term.rows - 1);
 
@@ -1355,9 +1362,19 @@ function positionObserveTerminal() {
 
     // Canvas renderer has no DOM row layout; pin grid metrics so the terminal is visible.
     applyObserveGridInlineSizes(width, height);
-    termEl.style.marginLeft = `${inset + (viewW - width) / 2}px`;
-    termEl.style.marginTop = `${inset + (viewH - height) / 2}px`;
-    updateGridFrame();
+
+    const visualW = width * zoom;
+    const visualH = height * zoom;
+    if (zoom < 1) {
+      termEl.style.transform = `scale(${zoom})`;
+      termEl.style.transformOrigin = "0 0";
+    } else {
+      termEl.style.transform = "";
+      termEl.style.transformOrigin = "";
+    }
+    termEl.style.marginLeft = `${inset + (viewW - visualW) / 2}px`;
+    termEl.style.marginTop = `${inset + (viewH - visualH) / 2}px`;
+    updateGridFrame({ width, height, zoom });
   };
 
   layoutOnce();
@@ -1390,37 +1407,12 @@ function fitObserveLayout() {
   const viewW = Math.max(1, terminalWrap.clientWidth - inset * 2);
   const viewH = Math.max(1, terminalWrap.clientHeight - inset * 2);
 
-  let targetW = viewW;
-  let targetH = viewH;
-  if (observeZoom < 1) {
-    targetW = viewW * observeZoom;
-    targetH = viewH * observeZoom;
-  }
+  const preferredCap =
+    fontSizeMode === "auto"
+      ? OBSERVE_FONT_MAX
+      : parseInt(fontSizeMode, 10) || DEFAULT_FONT_SIZE;
 
-  let best;
-  if (fontSizeMode === "auto") {
-    best = maxFontForTarget(targetW, targetH);
-    if (observeZoom > 1) {
-      const boosted = Math.min(
-        OBSERVE_FONT_MAX,
-        maxFontForTarget(viewW, viewH, { cap: Math.floor(best * observeZoom) })
-      );
-      best = boosted;
-      term.options.fontSize = best;
-      term.resize(ptyCols, ptyRows);
-    }
-  } else {
-    const preferred = parseInt(fontSizeMode, 10) || DEFAULT_FONT_SIZE;
-    const scaledPreferred = Math.min(
-      OBSERVE_FONT_MAX,
-      Math.max(OBSERVE_FONT_MIN, Math.round(preferred * observeZoom))
-    );
-    if (observeZoom > 1) {
-      best = maxFontForTarget(viewW, viewH, { cap: scaledPreferred });
-    } else {
-      best = maxFontForTarget(targetW, targetH, { cap: scaledPreferred });
-    }
-  }
+  const best = maxFontForTarget(viewW, viewH, { cap: preferredCap });
 
   positionObserveTerminal();
   return { fontSize: best };
