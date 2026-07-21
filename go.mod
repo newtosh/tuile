@@ -10,6 +10,7 @@ require (
 	github.com/creack/pty v1.1.24
 	github.com/mark3labs/mcp-go v0.56.0
 	github.com/pelletier/go-toml/v2 v2.4.3
+	golang.org/x/image v0.44.0
 )
 
 require (
@@ -24,7 +25,6 @@ require (
 	github.com/santhosh-tekuri/jsonschema/v6 v6.0.2 // indirect
 	github.com/spf13/cast v1.7.1 // indirect
 	github.com/yosida95/uritemplate/v3 v3.0.2 // indirect
-	golang.org/x/image v0.44.0 // indirect
 	golang.org/x/sys v0.47.0 // indirect
 	golang.org/x/text v0.40.0 // indirect
 )
