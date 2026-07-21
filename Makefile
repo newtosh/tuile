@@ -24,6 +24,9 @@ test-export-svg:
 	@chmod +x scripts/verify-export-svg.sh scripts/audit-export-svg.py
 	@./scripts/verify-export-svg.sh
 
+capture-readme-screenshots:
+	@./scripts/capture-readme-screenshots.sh
+
 vet:
 	go vet ./...
 

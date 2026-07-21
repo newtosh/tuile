@@ -44,6 +44,23 @@ const observeZoomMetricsJS = `(() => {
 	};
 })()`
 
+func waitObserveReady(ctx context.Context) chromedp.Action {
+	return chromedp.ActionFunc(func(ctx context.Context) error {
+		deadline := time.Now().Add(20 * time.Second)
+		for time.Now().Before(deadline) {
+			var status string
+			var ready bool
+			_ = chromedp.Evaluate(`document.getElementById('status-message')?.textContent?.trim() || ''`, &status).Do(ctx)
+			_ = chromedp.Evaluate(`Boolean(document.querySelector('#terminal-wrap.observe-mode .xterm canvas'))`, &ready).Do(ctx)
+			if ready && status != "" && !strings.Contains(status, "Waiting") && !strings.Contains(status, "Loading") && !strings.Contains(status, "Initializing") {
+				return nil
+			}
+			time.Sleep(250 * time.Millisecond)
+		}
+		return fmt.Errorf("timed out waiting for observe layout")
+	})
+}
+
 func readObserveZoomMetrics(t *testing.T, ctx context.Context) observeZoomMetrics {
 	t.Helper()
 	var m observeZoomMetrics
@@ -87,18 +104,18 @@ func TestViewerObserveZoomChangesTerminalSize(t *testing.T) {
 		chromedp.Navigate(sess.ViewURL()),
 		chromedp.Evaluate(setup, nil),
 		chromedp.Reload(),
-		chromedp.WaitVisible(".xterm-rows", chromedp.ByQuery),
+		waitObserveReady(ctx),
 	); err != nil {
 		t.Skipf("browser automation unavailable: %v", err)
 	}
 
 	deadline := time.Now().Add(12 * time.Second)
 	for time.Now().Before(deadline) {
-		var termText string
-		if err := chromedp.Run(ctx, chromedp.Text(".xterm-rows", &termText, chromedp.ByQuery)); err != nil {
+		var status string
+		if err := chromedp.Run(ctx, chromedp.Evaluate(`document.getElementById('status-message')?.textContent?.trim() || ''`, &status)); err != nil {
 			t.Skipf("browser automation unavailable: %v", err)
 		}
-		if strings.Contains(termText, marker) {
+		if strings.Contains(status, marker) || strings.Contains(status, "Observe") {
 			break
 		}
 		time.Sleep(300 * time.Millisecond)

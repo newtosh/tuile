@@ -77,9 +77,25 @@ Viewer **fonts**, **terminal color themes**, and **light/dark chrome** are indep
 
 ![Tuile settings menu](docs/images/viewer-settings.png)
 
-*Settings panel (gear icon, top right): **App appearance** (Auto/Dark/Light UI chrome), **Terminal theme** (ANSI palette inside the pane), **Font** (bundled Nerd Fonts for statusline icons), and **Text size**; toggle **enhanced rendering** (WebGL) for sharper Unicode and box-drawing; use **Take over** to send keystrokes from the browser, **Release** to hand control back to the agent, and **Reconnect** if the WebSocket drops. Sessions default to 120×36 — non-default sizes show as “resized” in the sidebar.*
+*Settings panel (gear icon, top right): **App appearance** (Auto/Dark/Light UI chrome), **Terminal theme** (ANSI palette inside the pane), **Font** (bundled Nerd Fonts for statusline icons), and **Text size**; toggle **enhanced rendering** (WebGL) for sharper Unicode and box-drawing; use **Take over** to send keystrokes from the browser, **Release** to hand control back to the agent, and **Reconnect** if the WebSocket drops. Sessions default to 120×36 — non-default sizes show as “resized” in the sidebar. **Zoom** controls in the status bar scale observe mode down to 50% (100% is the current maximum).*
 
-**Export screenshots** — use the image icon (next to settings) to open the export panel: pick wireframe chrome, background (transparent, preset gradient/solid, or custom image), scale (1x/2x), and PNG or SVG. The same options are available via `POST /v1/sessions/{id}/export`. When committing images to docs, follow [CONTRIBUTING.md](CONTRIBUTING.md) hygiene (no personal names or account-specific strings).
+![Tuile observe mode with viewer frame](docs/images/viewer-export-demo.png)
+
+*Observe mode with the Tuile viewer frame: ANSI colors, Nerd Font icons, ligatures, and a live grid-size badge (120×36).*
+
+![Export screenshot panel](docs/images/viewer-export-dialog.png)
+
+*Export panel (image icon, next to settings): live preview plus **Tuile viewer** or **OS window** chrome (wireframe, macOS, Windows), transparent or custom background, 1×/2× scale, and PNG or SVG download.*
+
+![Observe zoom at 70%](docs/images/viewer-observe-zoom.png)
+
+*Zoom out in observe mode to fit large layouts on screen (here 70%; reset with the center control or `0`).*
+
+![PNG export sample](docs/images/export-sample.png)
+
+*Example PNG from `POST /v1/sessions/{id}/export` — same chrome/background options as the browser panel. Browser-initiated exports use the live xterm.js renderer for pixel-perfect Nerd Font and ligature output.*
+
+**Export screenshots** — the browser download path and `POST /v1/sessions/{id}/export` share the same option schema (`chrome_preset`, `background_mode`, `scale`, `format`, …). JSON body for preset backgrounds; use `multipart/form-data` with `background_image` when `background_mode` is `custom`. When committing images to docs, follow [CONTRIBUTING.md](CONTRIBUTING.md) hygiene (no personal names or account-specific strings).
 
 ## Requirements
 
