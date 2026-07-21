@@ -7,7 +7,7 @@ How to install Tuile, depend on it from another Go project, and track whether pe
 ### Go install (recommended for CLI)
 
 ```bash
-go install github.com/newtosh/tuile/cmd/tuile@v0.2.0
+go install github.com/newtosh/tuile/cmd/tuile@v0.2.1
 tuile version
 ```
 
@@ -18,7 +18,7 @@ Use `@latest` after the first release, or pin a semver tag in scripts and CI.
 Download `tuile` (and `tuile-mcp`) for your platform from [GitHub Releases](https://github.com/newtosh/tuile/releases).
 
 ```bash
-curl -sL https://github.com/newtosh/tuile/releases/download/v0.2.0/tuile-linux-amd64 -o tuile
+curl -sL https://github.com/newtosh/tuile/releases/download/v0.2.1/tuile-linux-amd64 -o tuile
 chmod +x tuile
 ```
 
@@ -41,7 +41,7 @@ Tuile’s main adoption path for **other repos** is the public `testkit` package
 ### 1. Add the module
 
 ```bash
-go get github.com/newtosh/tuile@v0.2.0
+go get github.com/newtosh/tuile@v0.2.1
 ```
 
 Sibling repo during development:
@@ -106,7 +106,7 @@ Browser tests need Chrome; headless-only API tests can run without it.
 
 ### Practical habits
 
-- **Tag semver releases** (`v0.1.0`, `v0.1.1`, `v0.1.2`, `v0.2.0`, …) so pkg.go.dev and `go install` stay current.
+- **Tag semver releases** (`v0.1.0`, `v0.1.1`, `v0.1.2`, `v0.2.0`, `v0.2.1`, …) so pkg.go.dev and `go install` stay current.
 - **Keep a CHANGELOG** (or GitHub release notes) so adopters know when to bump.
 - **Respond to issues** filed by downstream projects — they are your adoption funnel.
 
