@@ -58,7 +58,7 @@ func parseColor(raw string, isFG bool) color.Color {
 				a = int(af * 255)
 			}
 		}
-		return color.RGBA{uint8(r), uint8(g), uint8(b), uint8(a)}
+		return color.RGBA{clampChannel(r), clampChannel(g), clampChannel(b), clampChannel(a)}
 	}
 	if strings.HasPrefix(raw, "p") {
 		idx, err := strconv.Atoi(raw[1:])
@@ -70,4 +70,14 @@ func parseColor(raw string, isFG bool) color.Color {
 		return defaultFG
 	}
 	return defaultBG
+}
+
+func clampChannel(v int) uint8 {
+	if v < 0 {
+		return 0
+	}
+	if v > 255 {
+		return 255
+	}
+	return uint8(v)
 }
