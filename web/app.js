@@ -81,6 +81,10 @@ const terminalLoading = document.getElementById("terminal-loading");
 const loadingSpinner = document.getElementById("loading-spinner");
 const loadingMessage = document.getElementById("loading-message");
 const loadingRetry = document.getElementById("loading-retry");
+const layoutEl = document.getElementById("layout");
+const sessionPanel = document.getElementById("session-panel");
+const sessionPanelToggle = document.getElementById("session-panel-toggle");
+const sessionPanelToggleIcon = document.getElementById("session-panel-toggle-icon");
 const sessionList = document.getElementById("session-list");
 const sessionEmpty = document.getElementById("session-empty");
 const sessionSortSelect = document.getElementById("session-sort");
@@ -133,6 +137,7 @@ const LEGACY_LIGATURES_KEY = "tuile_ligatures";
 const APP_APPEARANCE_KEY = "tuile_app_appearance";
 const TERMINAL_THEME_KEY = "tuile_terminal_theme";
 const FONT_FAMILY_KEY = "tuile_font_family";
+const SESSION_PANEL_COLLAPSED_KEY = "tuile_session_panel_collapsed";
 const APPEARANCE_HINT_DISMISS_PREFIX = "tuile_appearance_hint_dismiss";
 const DEFAULT_FONT_FAMILY = "'JetBrainsMono Nerd Font', monospace";
 let observeZoom = clampZoom(parseFloat(localStorage.getItem(ZOOM_KEY)) || 1);
@@ -606,6 +611,30 @@ function updateZoomControl() {
   zoomResetBtn.classList.toggle("is-custom", Math.abs(observeZoom - 1) > 0.001);
   zoomOutBtn.disabled = observeZoom <= ZOOM_MIN + 0.001;
   zoomInBtn.disabled = observeZoom >= ZOOM_MAX - 0.001;
+}
+
+function initialSessionPanelCollapsed() {
+  const stored = localStorage.getItem(SESSION_PANEL_COLLAPSED_KEY);
+  if (stored !== null) {
+    return stored === "1";
+  }
+  return Boolean(sessionId && token);
+}
+
+function setSessionPanelCollapsed(collapsed, { persist = true } = {}) {
+  layoutEl?.classList.toggle("session-panel-collapsed", collapsed);
+  if (sessionPanel) {
+    sessionPanel.hidden = collapsed;
+  }
+  if (sessionPanelToggle) {
+    sessionPanelToggle.setAttribute("aria-expanded", String(!collapsed));
+    sessionPanelToggle.title = collapsed ? "Show session panel" : "Hide session panel";
+  }
+  mountIcon(sessionPanelToggleIcon, collapsed ? "panel-left" : "panel-left-close", { size: 18 });
+  if (persist) {
+    localStorage.setItem(SESSION_PANEL_COLLAPSED_KEY, collapsed ? "1" : "0");
+  }
+  scheduleTerminalLayout();
 }
 
 function setStatus(text) {
@@ -2211,6 +2240,11 @@ zoomInBtn.addEventListener("click", () => {
 
 zoomResetBtn.addEventListener("click", () => {
   setObserveZoom(1);
+});
+
+setSessionPanelCollapsed(initialSessionPanelCollapsed(), { persist: false });
+sessionPanelToggle?.addEventListener("click", () => {
+  setSessionPanelCollapsed(layoutEl?.classList.contains("session-panel-collapsed") !== true);
 });
 
 document.addEventListener("keydown", (ev) => {

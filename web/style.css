@@ -512,6 +512,10 @@ button.primary {
   box-shadow: var(--shadow-panel);
 }
 
+#layout.session-panel-collapsed #session-panel {
+  display: none;
+}
+
 .panel-header {
   display: flex;
   align-items: center;
