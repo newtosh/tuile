@@ -1402,6 +1402,11 @@ html[data-appearance="light"] #terminal-wrap,
   background: var(--bg-elevated);
 }
 
+.export-preview-stage.has-export-background {
+  background: #0a0a0a;
+  background-image: none;
+}
+
 .export-preview-stage {
   flex: 1;
   display: flex;

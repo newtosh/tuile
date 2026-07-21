@@ -13,6 +13,9 @@ export const BACKGROUND_TRANSPARENT = "transparent";
 export const BACKGROUND_PRESET = "preset";
 export const BACKGROUND_CUSTOM = "custom";
 
+/** Visible wallpaper margin around chrome when exporting a custom background (1x px). */
+export const CUSTOM_BACKGROUND_SCENE_PAD = 48;
+
 export const FORMAT_PNG = "png";
 export const FORMAT_SVG = "svg";
 
@@ -421,7 +424,7 @@ export function viewerFrameMetrics(renderScale = 1, opts = null) {
     preset = opts.background_preset;
   }
   const accents = themeChromeAccents(preset);
-  const frameBg = opts?.background_mode === BACKGROUND_PRESET ? accents.frameBg : termBg;
+  const frameBg = opts?.background_mode === BACKGROUND_CUSTOM ? termBg : accents.frameBg;
   return {
     framePad: VIEWER_FRAME.framePad * renderScale,
     radius: VIEWER_FRAME.radius * renderScale,
@@ -431,5 +434,42 @@ export function viewerFrameMetrics(renderScale = 1, opts = null) {
     labelText: accents.labelText,
     labelBg: accents.labelBg,
     labelBorder: accents.labelBorder,
+  };
+}
+
+export function customBackgroundScenePad(renderScale = 1) {
+  return CUSTOM_BACKGROUND_SCENE_PAD * renderScale;
+}
+
+export function expandLayoutForCustomBackground(layout, opts) {
+  const renderScale = layout.renderScale ?? layout.scale ?? 1;
+  const downscale = layout.downscale || 1;
+  const chromeW = layout.renderOuterW;
+  const chromeH = layout.renderOuterH;
+  const base = {
+    ...layout,
+    chromeOffsetX: 0,
+    chromeOffsetY: 0,
+    chromeW,
+    chromeH,
+    scenePad: 0,
+  };
+  if (opts?.background_mode !== BACKGROUND_CUSTOM) {
+    return base;
+  }
+  const scenePad = customBackgroundScenePad(renderScale);
+  const renderOuterW = chromeW + scenePad * 2;
+  const renderOuterH = chromeH + scenePad * 2;
+  return {
+    ...base,
+    scenePad,
+    chromeOffsetX: scenePad,
+    chromeOffsetY: scenePad,
+    termX: (layout.termX ?? 0) + scenePad,
+    termY: (layout.termY ?? 0) + scenePad,
+    renderOuterW,
+    renderOuterH,
+    outerW: Math.round(renderOuterW / downscale),
+    outerH: Math.round(renderOuterH / downscale),
   };
 }

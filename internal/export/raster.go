@@ -104,6 +104,13 @@ func drawChrome(img *image.RGBA, layout Layout, opts Options) {
 	drawViewerFrame(img, layout, opts)
 }
 
+func chromeRect(layout Layout) (x, y, w, h int) {
+	if layout.ScenePad > 0 {
+		return layout.ChromeOffsetX, layout.ChromeOffsetY, layout.ChromeW, layout.ChromeH
+	}
+	return 0, 0, layout.RenderOuterW, layout.RenderOuterH
+}
+
 func drawGridLabelOverlay(img *image.RGBA, layout Layout, opts Options) {
 	if opts.IsOSChrome() || !opts.ShowGridSize {
 		return
@@ -113,25 +120,25 @@ func drawGridLabelOverlay(img *image.RGBA, layout Layout, opts Options) {
 
 func drawWireframeChrome(img *image.RGBA, layout Layout, opts Options) {
 	border := color.RGBA{139, 139, 158, 255}
-	w, h := layout.RenderOuterW, layout.RenderOuterH
-	if opts.BackgroundMode == BackgroundPreset {
+	ox, oy, w, h := chromeRect(layout)
+	if opts.BackgroundMode != BackgroundCustom {
 		frame := color.RGBA{22, 22, 26, 255}
-		fillRect(img, 0, 0, w, h, frame)
+		fillRect(img, ox, oy, w, h, frame)
 	}
 	inset := layout.ChromePad
-	strokeRect(img, inset/2, inset/2, w-inset, h-inset, border, 2*layout.RenderScale)
-	strokeRect(img, inset, inset, w-inset*2, layout.TitleBar, border, 2*layout.RenderScale)
-	drawDots(img, layout)
+	strokeRect(img, ox+inset/2, oy+inset/2, w-inset, h-inset, border, 2*layout.RenderScale)
+	strokeRect(img, ox+inset, oy+inset, w-inset*2, layout.TitleBar, border, 2*layout.RenderScale)
+	drawDots(img, layout, ox, oy)
 	fontPx := EffectiveFontPx(opts)
 	face, err := monoFace(float64(fontPx * layout.RenderScale * 7 / 10))
 	if err != nil {
 		return
 	}
-	drawText(img, face, opts.Title, w/2, inset+layout.TitleBar*2/3, color.RGBA{228, 228, 231, 255}, true)
+	drawText(img, face, opts.Title, ox+w/2, oy+inset+layout.TitleBar*2/3, color.RGBA{228, 228, 231, 255}, true)
 }
 
 func drawMacOSChrome(img *image.RGBA, layout Layout, opts Options) {
-	w, h := layout.RenderOuterW, layout.RenderOuterH
+	ox, oy, w, h := chromeRect(layout)
 	radius := layout.WindowRadius
 	titleBar := layout.TitleBar
 	windowBg := MacOSWindowBg(opts)
@@ -143,21 +150,21 @@ func drawMacOSChrome(img *image.RGBA, layout Layout, opts Options) {
 		titleColor = color.RGBA{60, 60, 67, 183}
 	}
 
-	fillRoundRect(img, 0, 0, w, h, radius, windowBg)
-	drawMacOSTrafficLights(img, layout)
+	fillRoundRect(img, ox, oy, w, h, radius, windowBg)
+	drawMacOSTrafficLights(img, layout, ox, oy)
 	fontPx := EffectiveFontPx(opts)
 	face, err := monoFace(float64(fontPx * layout.RenderScale * 13 / 20))
 	if err == nil {
-		drawText(img, face, opts.Title, w/2, int(float64(titleBar)*0.62), titleColor, true)
+		drawText(img, face, opts.Title, ox+w/2, oy+int(float64(titleBar)*0.62), titleColor, true)
 	}
-	strokeRoundRect(img, 0, 0, w, h, radius, border, 1)
+	strokeRoundRect(img, ox, oy, w, h, radius, border, 1)
 }
 
-func drawMacOSTrafficLights(img *image.RGBA, layout Layout) {
+func drawMacOSTrafficLights(img *image.RGBA, layout Layout, ox, oy int) {
 	dot := MacOSTrafficLightSize() * layout.RenderScale
 	gap := MacOSTrafficLightGap() * layout.RenderScale
-	left := MacOSTrafficLightInset() * layout.RenderScale
-	top := MacOSTrafficLightInset() * layout.RenderScale
+	left := ox + MacOSTrafficLightInset()*layout.RenderScale
+	top := oy + MacOSTrafficLightInset()*layout.RenderScale
 	cy := top + dot/2
 	ring := color.RGBA{0, 0, 0, 26}
 	colors := []color.RGBA{
@@ -173,7 +180,7 @@ func drawMacOSTrafficLights(img *image.RGBA, layout Layout) {
 }
 
 func drawWindowsChrome(img *image.RGBA, layout Layout, opts Options) {
-	w, h := layout.RenderOuterW, layout.RenderOuterH
+	ox, oy, w, h := chromeRect(layout)
 	radius := layout.WindowRadius
 	windowBg := WindowsWindowBg(opts)
 	light := opts.Theme == "light"
@@ -184,13 +191,13 @@ func drawWindowsChrome(img *image.RGBA, layout Layout, opts Options) {
 		captionColor = color.RGBA{0, 0, 0, 230}
 	}
 
-	fillRoundRect(img, 0, 0, w, h, radius, windowBg)
-	drawWindowsTabRow(img, layout, opts)
-	drawWindowsCaptionButtons(img, layout, captionColor)
-	strokeRoundRect(img, 0, 0, w, h, radius, border, 1)
+	fillRoundRect(img, ox, oy, w, h, radius, windowBg)
+	drawWindowsTabRow(img, layout, opts, ox, oy)
+	drawWindowsCaptionButtons(img, layout, captionColor, ox, oy)
+	strokeRoundRect(img, ox, oy, w, h, radius, border, 1)
 }
 
-func drawWindowsTabRow(img *image.RGBA, layout Layout, opts Options) {
+func drawWindowsTabRow(img *image.RGBA, layout Layout, opts Options, ox, oy int) {
 	titleBar := layout.TitleBar
 	light := opts.Theme == "light"
 	tabText := color.RGBA{204, 204, 204, 255}
@@ -200,8 +207,8 @@ func drawWindowsTabRow(img *image.RGBA, layout Layout, opts Options) {
 		captionColor = color.RGBA{0, 0, 0, 230}
 	}
 	scale := layout.RenderScale
-	tabX := WindowsTabRowMarginX() * scale
-	tabY := WindowsTabRowMarginTop() * scale
+	tabX := ox + WindowsTabRowMarginX()*scale
+	tabY := oy + WindowsTabRowMarginTop()*scale
 	tabPad := WindowsTabPaddingX() * scale
 	tabW := WindowsTabWidth() * scale
 	tabH := titleBar - WindowsTabRowMarginTop()*scale
@@ -213,7 +220,7 @@ func drawWindowsTabRow(img *image.RGBA, layout Layout, opts Options) {
 	tabRowBg := WindowsTabRowBg(opts)
 	tabActiveBg := WindowsWindowBg(opts)
 	tabAccent := WindowsTabActiveTopAccent(opts)
-	fillRect(img, 0, 0, layout.RenderOuterW, titleBar, tabRowBg)
+	fillRect(img, ox, oy, layout.ChromeW, titleBar, tabRowBg)
 	fillRoundRectTopOnly(img, tabX, tabY, tabW, tabH, tabR, tabActiveBg)
 	fillRect(img, tabX+tabR, tabY, tabW-2*tabR, maxInt(1, scale), tabAccent)
 	iconX := tabX + tabPad
@@ -300,10 +307,13 @@ func strokeVLine(img *image.RGBA, x, y1, y2 int, c color.RGBA, thickness int) {
 	}
 }
 
-func drawWindowsCaptionButtons(img *image.RGBA, layout Layout, icon color.RGBA) {
+func drawWindowsCaptionButtons(img *image.RGBA, layout Layout, icon color.RGBA, ox, oy int) {
 	btnW := WindowsCaptionButtonWidth() * layout.RenderScale
 	titleBar := layout.TitleBar
-	w := layout.RenderOuterW
+	w := layout.ChromeW
+	if layout.ScenePad == 0 {
+		w = layout.RenderOuterW
+	}
 	iconSize := 4 * layout.RenderScale
 	thickness := layout.RenderScale
 	if thickness < 1 {
@@ -311,9 +321,9 @@ func drawWindowsCaptionButtons(img *image.RGBA, layout Layout, icon color.RGBA) 
 	}
 	kinds := []string{"minimize", "maximize", "close"}
 	for i, kind := range kinds {
-		x := w - (len(kinds)-i)*btnW
+		x := ox + w - (len(kinds)-i)*btnW
 		cx := x + btnW/2
-		cy := titleBar / 2
+		cy := oy + titleBar/2
 		switch kind {
 		case "minimize":
 			strokeHLine(img, cx-iconSize, cx+iconSize, cy, icon, thickness)
@@ -376,12 +386,17 @@ func drawViewerFrame(img *image.RGBA, layout Layout, opts Options) {
 	accent := ThemeChromeAccentFor(opts)
 	frameBg := parseColor(accent.FrameBg, false).(color.RGBA)
 	border := parseColor(accent.Border, false).(color.RGBA)
-	if opts.BackgroundMode == BackgroundPreset {
-		termBG := color.RGBA{10, 10, 10, 255}
-		fillRoundRectEars(img, 0, 0, layout.FrameW, layout.FrameH, layout.FrameRadius, termBG)
-		fillRoundRect(img, 0, 0, layout.FrameW, layout.FrameH, layout.FrameRadius, frameBg)
+	ox, oy, w, h := chromeRect(layout)
+	if layout.FrameW > 0 && layout.ScenePad == 0 {
+		w = layout.FrameW
+		h = layout.FrameH
 	}
-	strokeRoundRect(img, 0, 0, layout.FrameW, layout.FrameH, layout.FrameRadius, border, 1)
+	if opts.BackgroundMode != BackgroundCustom {
+		termBG := color.RGBA{10, 10, 10, 255}
+		fillRoundRectEars(img, ox, oy, w, h, layout.FrameRadius, termBG)
+		fillRoundRect(img, ox, oy, w, h, layout.FrameRadius, frameBg)
+	}
+	strokeRoundRect(img, ox, oy, w, h, layout.FrameRadius, border, 1)
 }
 
 func drawGridLabel(img *image.RGBA, layout Layout, opts Options) {
@@ -397,8 +412,15 @@ func drawGridLabel(img *image.RGBA, layout Layout, opts Options) {
 	padY := 2 * layout.RenderScale
 	boxW := adv + padX*2
 	boxH := fontSize + padY*2
-	anchorX := layout.FrameW
-	anchorY := layout.FrameH
+	ox, oy, cw, ch := chromeRect(layout)
+	frameW := layout.FrameW
+	frameH := layout.FrameH
+	if frameW > 0 && layout.ScenePad == 0 {
+		cw = frameW
+		ch = frameH
+	}
+	anchorX := ox + cw
+	anchorY := oy + ch
 	x := anchorX - boxW - 6*layout.RenderScale
 	y := anchorY - boxH - 5*layout.RenderScale
 	labelBg := parseColor(accent.LabelBg, false).(color.RGBA)
@@ -413,11 +435,11 @@ func formatGridLabel(cols, rows int) string {
 	return fmt.Sprintf("%d×%d", cols, rows)
 }
 
-func drawDots(img *image.RGBA, layout Layout) {
+func drawDots(img *image.RGBA, layout Layout, ox, oy int) {
 	dot := 10 * layout.RenderScale
 	gap := 8 * layout.RenderScale
-	left := layout.ChromePad + 10*layout.RenderScale
-	cy := layout.ChromePad + layout.TitleBar/2
+	left := ox + layout.ChromePad + 10*layout.RenderScale
+	cy := oy + layout.ChromePad + layout.TitleBar/2
 	colors := []color.RGBA{
 		{255, 95, 87, 255},
 		{254, 188, 46, 255},

@@ -244,6 +244,11 @@ func ChromeInnerGap() int {
 	return 8
 }
 
+// CustomBackgroundScenePad returns wallpaper margin around chrome at 1x export scale.
+func CustomBackgroundScenePad() int {
+	return 48
+}
+
 // ViewerFramePad returns inner padding inside the Tuile viewer frame at 1x.
 func ViewerFramePad() int {
 	return 14

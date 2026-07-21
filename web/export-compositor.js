@@ -27,6 +27,7 @@ import {
   titleBarHeight,
   validateExportOptions,
   viewerFrameMetrics,
+  expandLayoutForCustomBackground,
 } from "./export-options.js";
 import { installLigatures } from "./ligatures.js";
 import { getTerminalTheme, resolveTerminalThemeId } from "./terminal-themes.js";
@@ -73,20 +74,23 @@ export function computeLayout(screen, opts, viewerMetrics = null) {
         (osStyle === OS_STYLE_MACOS ? macosWindowRadius() : windowsWindowRadius()) * renderScale;
       const renderOuterW = termW + termInset * 2;
       const renderOuterH = titleBar + termH + termInset * 2;
-      return {
-        ...base,
-        chrome: CHROME_OS,
-        osStyle,
-        titleBar,
-        termInset,
-        windowRadius: radius,
-        termX: termInset,
-        termY: titleBar + termInset,
-        renderOuterW,
-        renderOuterH,
-        outerW: Math.round(renderOuterW / scales.downscale),
-        outerH: Math.round(renderOuterH / scales.downscale),
-      };
+      return expandLayoutForCustomBackground(
+        {
+          ...base,
+          chrome: CHROME_OS,
+          osStyle,
+          titleBar,
+          termInset,
+          windowRadius: radius,
+          termX: termInset,
+          termY: titleBar + termInset,
+          renderOuterW,
+          renderOuterH,
+          outerW: Math.round(renderOuterW / scales.downscale),
+          outerH: Math.round(renderOuterH / scales.downscale),
+        },
+        opts
+      );
     }
 
     const pad = chromePadding() * renderScale;
@@ -94,20 +98,23 @@ export function computeLayout(screen, opts, viewerMetrics = null) {
     const inner = chromeInnerGap() * renderScale;
     const renderOuterW = termW + pad * 2;
     const renderOuterH = pad + title + inner + termH + pad;
-    return {
-      ...base,
-      chrome: CHROME_OS,
-      osStyle: OS_STYLE_WIREFRAME,
-      pad,
-      title,
-      inner,
-      termX: pad,
-      termY: pad + title + inner,
-      renderOuterW,
-      renderOuterH,
-      outerW: Math.round(renderOuterW / scales.downscale),
-      outerH: Math.round(renderOuterH / scales.downscale),
-    };
+    return expandLayoutForCustomBackground(
+      {
+        ...base,
+        chrome: CHROME_OS,
+        osStyle: OS_STYLE_WIREFRAME,
+        pad,
+        title,
+        inner,
+        termX: pad,
+        termY: pad + title + inner,
+        renderOuterW,
+        renderOuterH,
+        outerW: Math.round(renderOuterW / scales.downscale),
+        outerH: Math.round(renderOuterH / scales.downscale),
+      },
+      opts
+    );
   }
 
   const frame = viewerFrameMetrics(renderScale, opts);
@@ -115,18 +122,30 @@ export function computeLayout(screen, opts, viewerMetrics = null) {
   const frameH = termH + frame.framePad * 2;
   const renderOuterW = frameW;
   const renderOuterH = frameH;
+  return expandLayoutForCustomBackground(
+    {
+      ...base,
+      chrome: CHROME_MINIMAL,
+      ...frame,
+      frameW,
+      frameH,
+      termX: frame.framePad,
+      termY: frame.framePad,
+      renderOuterW,
+      renderOuterH,
+      outerW: Math.round(renderOuterW / scales.downscale),
+      outerH: Math.round(renderOuterH / scales.downscale),
+    },
+    opts
+  );
+}
+
+function chromeRect(layout) {
   return {
-    ...base,
-    chrome: CHROME_MINIMAL,
-    ...frame,
-    frameW,
-    frameH,
-    termX: frame.framePad,
-    termY: frame.framePad,
-    renderOuterW,
-    renderOuterH,
-    outerW: Math.round(renderOuterW / scales.downscale),
-    outerH: Math.round(renderOuterH / scales.downscale),
+    x: layout.chromeOffsetX ?? 0,
+    y: layout.chromeOffsetY ?? 0,
+    w: layout.chromeW ?? layout.renderOuterW,
+    h: layout.chromeH ?? layout.renderOuterH,
   };
 }
 
@@ -148,7 +167,26 @@ function finalizeRenderLayout(layout, opts, termW, termH) {
           : windowsTerminalInset() * renderScale);
       const renderOuterW = termW + termInset * 2;
       const renderOuterH = titleBar + termH + termInset * 2;
-      return {
+      return expandLayoutForCustomBackground(
+        {
+          ...layout,
+          termW,
+          termH,
+          renderOuterW,
+          renderOuterH,
+          outerW: Math.round(renderOuterW / downscale),
+          outerH: Math.round(renderOuterH / downscale),
+          termX: termInset,
+          termY: titleBar + termInset,
+        },
+        opts
+      );
+    }
+
+    const renderOuterW = termW + layout.pad * 2;
+    const renderOuterH = layout.pad + layout.title + layout.inner + termH + layout.pad;
+    return expandLayoutForCustomBackground(
+      {
         ...layout,
         termW,
         termH,
@@ -156,44 +194,34 @@ function finalizeRenderLayout(layout, opts, termW, termH) {
         renderOuterH,
         outerW: Math.round(renderOuterW / downscale),
         outerH: Math.round(renderOuterH / downscale),
-        termX: termInset,
-        termY: titleBar + termInset,
-      };
-    }
-
-    const renderOuterW = termW + layout.pad * 2;
-    const renderOuterH = layout.pad + layout.title + layout.inner + termH + layout.pad;
-    return {
-      ...layout,
-      termW,
-      termH,
-      renderOuterW,
-      renderOuterH,
-      outerW: Math.round(renderOuterW / downscale),
-      outerH: Math.round(renderOuterH / downscale),
-      termX: layout.pad,
-      termY: layout.pad + layout.title + layout.inner,
-    };
+        termX: layout.pad,
+        termY: layout.pad + layout.title + layout.inner,
+      },
+      opts
+    );
   }
   const frame = viewerFrameMetrics(layout.renderScale, opts);
   const frameW = termW + frame.framePad * 2;
   const frameH = termH + frame.framePad * 2;
   const renderOuterW = frameW;
   const renderOuterH = frameH;
-  return {
-    ...layout,
-    ...frame,
-    termW,
-    termH,
-    frameW,
-    frameH,
-    renderOuterW,
-    renderOuterH,
-    outerW: Math.round(renderOuterW / downscale),
-    outerH: Math.round(renderOuterH / downscale),
-    termX: frame.framePad,
-    termY: frame.framePad,
-  };
+  return expandLayoutForCustomBackground(
+    {
+      ...layout,
+      ...frame,
+      termW,
+      termH,
+      frameW,
+      frameH,
+      renderOuterW,
+      renderOuterH,
+      outerW: Math.round(renderOuterW / downscale),
+      outerH: Math.round(renderOuterH / downscale),
+      termX: frame.framePad,
+      termY: frame.framePad,
+    },
+    opts
+  );
 }
 
 function downscaleCanvas(src, targetW, targetH) {
@@ -257,8 +285,10 @@ function drawBackground(ctx, layout, opts, bgImage) {
     ctx.clearRect(0, 0, w, h);
     return;
   }
-  if (opts.background_mode === BACKGROUND_CUSTOM && bgImage) {
-    ctx.drawImage(bgImage, 0, 0, w, h);
+  if (opts.background_mode === BACKGROUND_CUSTOM) {
+    if (bgImage) {
+      ctx.drawImage(bgImage, 0, 0, w, h);
+    }
     return;
   }
   const spec = BACKGROUND_PRESETS[opts.background_preset] || BACKGROUND_PRESETS.slate;
@@ -296,13 +326,14 @@ function fillFrameCornerEars(ctx, w, h, radius, color) {
 
 function drawViewerFrame(ctx, layout, opts) {
   const s = layout.renderScale ?? layout.scale;
-  const w = layout.frameW;
-  const h = layout.frameH;
-  const solidFrameFill = opts?.background_mode === BACKGROUND_PRESET;
+  const { x, y, w, h } = chromeRect(layout);
+  const frameW = layout.frameW && !layout.scenePad ? layout.frameW : w;
+  const frameH = layout.frameH && !layout.scenePad ? layout.frameH : h;
+  const solidFrameFill = opts?.background_mode !== BACKGROUND_CUSTOM;
 
   if (solidFrameFill) {
     const termBg = layout.termBg || TERM_BG;
-    fillFrameCornerEars(ctx, w, h, layout.radius, termBg);
+    fillFrameCornerEars(ctx, x, y, frameW, frameH, layout.radius, termBg);
   }
 
   ctx.save();
@@ -311,19 +342,19 @@ function drawViewerFrame(ctx, layout, opts) {
     ctx.shadowBlur = 32 * s;
     ctx.shadowOffsetY = 12 * s;
   }
-  roundRectPath(ctx, 0, 0, w, h, layout.radius);
+  roundRectPath(ctx, x, y, frameW, frameH, layout.radius);
   if (solidFrameFill) {
     ctx.fillStyle = layout.frameBg;
     ctx.fill();
   }
   ctx.shadowColor = "transparent";
 
-  roundRectPath(ctx, 0.5, 0.5, w - 1, h - 1, layout.radius);
+  roundRectPath(ctx, x + 0.5, y + 0.5, frameW - 1, frameH - 1, layout.radius);
   ctx.strokeStyle = "rgba(94, 179, 214, 0.12)";
   ctx.lineWidth = 1;
   ctx.stroke();
 
-  roundRectPath(ctx, 0.5, 0.5, w - 1, h - 1, layout.radius);
+  roundRectPath(ctx, x + 0.5, y + 0.5, frameW - 1, frameH - 1, layout.radius);
   ctx.strokeStyle = layout.border;
   ctx.lineWidth = 1;
   ctx.stroke();
@@ -338,8 +369,11 @@ function drawGridLabel(ctx, layout) {
   const textW = ctx.measureText(label).width;
   const boxW = textW + padX * 2;
   const boxH = fontSize + padY * 2;
-  const anchorX = layout.frameW;
-  const anchorY = layout.frameH;
+  const chrome = chromeRect(layout);
+  const frameW = layout.frameW && !layout.scenePad ? layout.frameW : chrome.w;
+  const frameH = layout.frameH && !layout.scenePad ? layout.frameH : chrome.h;
+  const anchorX = chrome.x + frameW;
+  const anchorY = chrome.y + frameH;
   const x = anchorX - boxW - offsetX;
   const y = anchorY - boxH - offsetY;
 
@@ -354,11 +388,11 @@ function drawGridLabel(ctx, layout) {
   ctx.fillText(label, x + padX, y + padY + fontSize * 0.88);
 }
 
-function drawTrafficLights(ctx, layout, s) {
+function drawTrafficLights(ctx, layout, s, ox = 0, oy = 0) {
   const dot = 10 * s;
   const gap = 8 * s;
-  let x = layout.pad + 10 * s;
-  const cy = layout.pad + layout.title / 2;
+  let x = ox + layout.pad + 10 * s;
+  const cy = oy + layout.pad + layout.title / 2;
   for (const color of TRAFFIC_LIGHTS) {
     ctx.beginPath();
     ctx.fillStyle = color;
@@ -368,11 +402,11 @@ function drawTrafficLights(ctx, layout, s) {
   }
 }
 
-function drawMacOSTrafficLights(ctx, palette) {
+function drawMacOSTrafficLights(ctx, palette, ox = 0, oy = 0) {
   const { trafficLightSize: dot, trafficLightInsetX: left, trafficLightInsetY: top, trafficLightGap: gap, trafficLights, trafficRing } = palette;
   const r = dot / 2;
-  const cy = top + r;
-  let x = left;
+  const cy = oy + top + r;
+  let x = ox + left;
   for (const color of trafficLights) {
     const cx = x + r;
     ctx.beginPath();
@@ -462,7 +496,7 @@ function drawWindowsTabMenuChevron(ctx, palette, x, cy) {
   ctx.stroke();
 }
 
-function drawWindowsTabRow(ctx, palette, faviconImage) {
+function drawWindowsTabRow(ctx, palette, faviconImage, ox = 0, oy = 0) {
   const {
     titleBarHeight,
     tabRowMarginX,
@@ -473,7 +507,6 @@ function drawWindowsTabRow(ctx, palette, faviconImage) {
     tabIconSize,
     tabIconGap,
     tabText,
-    tabRowBg,
     tabActiveBg,
     tabActiveTopAccent,
     titleFontSize,
@@ -481,13 +514,10 @@ function drawWindowsTabRow(ctx, palette, faviconImage) {
     newTabButtonWidth,
     tabCloseButtonWidth,
   } = palette;
-  const tabX = tabRowMarginX;
-  const tabY = tabRowMarginTop;
+  const tabX = ox + tabRowMarginX;
+  const tabY = oy + tabRowMarginTop;
   const tabW = tabWidth;
   const tabH = titleBarHeight - tabRowMarginTop;
-  const rowW = ctx.canvas.width;
-  ctx.fillStyle = tabRowBg;
-  ctx.fillRect(0, 0, rowW, titleBarHeight);
   fillRoundRectTop(ctx, tabX, tabY, tabW, tabH, tabTopRadius, tabActiveBg);
   ctx.save();
   roundRectTopPath(ctx, tabX, tabY, tabW, tabH, tabTopRadius);
@@ -517,7 +547,7 @@ function drawWindowsTabRow(ctx, palette, faviconImage) {
   drawWindowsTabMenuChevron(ctx, palette, controlsX + newTabButtonWidth, controlsCy);
 }
 
-function drawWindowsCaptionButtons(ctx, palette, w) {
+function drawWindowsCaptionButtons(ctx, palette, w, ox = 0, oy = 0) {
   const { titleBarHeight, captionButtonWidth, captionColor, iconScale } = palette;
   const btnW = captionButtonWidth;
   const kinds = ["minimize", "maximize", "close"];
@@ -526,9 +556,9 @@ function drawWindowsCaptionButtons(ctx, palette, w) {
   ctx.lineWidth = Math.max(1, iconScale * 0.75);
   ctx.lineCap = "round";
   for (let i = 0; i < kinds.length; i++) {
-    const x = w - (kinds.length - i) * btnW;
+    const x = ox + w - (kinds.length - i) * btnW;
     const cx = x + btnW / 2;
-    const cy = titleBarHeight / 2;
+    const cy = oy + titleBarHeight / 2;
     if (kinds[i] === "minimize") {
       ctx.beginPath();
       ctx.moveTo(cx - icon, cy);
@@ -549,8 +579,7 @@ function drawWindowsCaptionButtons(ctx, palette, w) {
 
 function drawWindowsChrome(ctx, layout, opts, faviconImage = null) {
   const s = layout.renderScale ?? layout.scale ?? 1;
-  const w = layout.renderOuterW;
-  const h = layout.renderOuterH;
+  const { x, y, w, h } = chromeRect(layout);
   const palette = windowsChromePalette(opts, s);
   const radius = layout.windowRadius ?? palette.windowRadius;
   const titleBar = layout.titleBar ?? palette.titleBarHeight;
@@ -562,24 +591,24 @@ function drawWindowsChrome(ctx, layout, opts, faviconImage = null) {
     ctx.shadowBlur = palette.shadowBlur;
     ctx.shadowOffsetY = palette.shadowOffsetY;
   }
-  roundRectPath(ctx, 0, 0, w, h, radius);
+  roundRectPath(ctx, x, y, w, h, radius);
   ctx.fillStyle = palette.windowBg;
   ctx.fill();
   ctx.shadowColor = "transparent";
   ctx.restore();
 
   ctx.save();
-  roundRectPath(ctx, 0, 0, w, h, radius);
+  roundRectPath(ctx, x, y, w, h, radius);
   ctx.clip();
   ctx.fillStyle = palette.tabRowBg;
-  ctx.fillRect(0, 0, w, titleBar);
+  ctx.fillRect(x, y, w, titleBar);
   ctx.fillStyle = palette.windowBg;
-  ctx.fillRect(0, titleBar, w, h - titleBar);
+  ctx.fillRect(x, y + titleBar, w, h - titleBar);
 
-  drawWindowsTabRow(ctx, palette, faviconImage);
-  drawWindowsCaptionButtons(ctx, palette, w);
+  drawWindowsTabRow(ctx, palette, faviconImage, x, y);
+  drawWindowsCaptionButtons(ctx, palette, w, x, y);
 
-  roundRectPath(ctx, 0.5, 0.5, w - 1, h - 1, radius);
+  roundRectPath(ctx, x + 0.5, y + 0.5, w - 1, h - 1, radius);
   ctx.strokeStyle = palette.border;
   ctx.lineWidth = Math.max(0.5, 0.5 * s);
   ctx.stroke();
@@ -588,8 +617,7 @@ function drawWindowsChrome(ctx, layout, opts, faviconImage = null) {
 
 function drawMacOSChrome(ctx, layout, opts) {
   const s = layout.renderScale ?? layout.scale ?? 1;
-  const w = layout.renderOuterW;
-  const h = layout.renderOuterH;
+  const { x, y, w, h } = chromeRect(layout);
   const palette = macosChromePalette(opts, s);
   const radius = layout.windowRadius ?? palette.windowRadius;
   const titleBar = layout.titleBar ?? palette.titleBarHeight;
@@ -601,28 +629,28 @@ function drawMacOSChrome(ctx, layout, opts) {
     ctx.shadowBlur = palette.shadowBlur;
     ctx.shadowOffsetY = palette.shadowOffsetY;
   }
-  roundRectPath(ctx, 0, 0, w, h, radius);
+  roundRectPath(ctx, x, y, w, h, radius);
   ctx.fillStyle = palette.windowBg;
   ctx.fill();
   ctx.shadowColor = "transparent";
   ctx.restore();
 
   ctx.save();
-  roundRectPath(ctx, 0, 0, w, h, radius);
+  roundRectPath(ctx, x, y, w, h, radius);
   ctx.clip();
   ctx.fillStyle = palette.titleBarBg;
-  ctx.fillRect(0, 0, w, h);
+  ctx.fillRect(x, y, w, h);
 
-  drawMacOSTrafficLights(ctx, palette);
+  drawMacOSTrafficLights(ctx, palette, x, y);
 
   ctx.fillStyle = palette.titleColor;
   ctx.font = `500 ${palette.titleFontSize}px -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif`;
   ctx.textAlign = "center";
   ctx.textBaseline = "alphabetic";
-  ctx.fillText(opts.title || "Terminal", w / 2, titleBar * 0.62);
+  ctx.fillText(opts.title || "Terminal", x + w / 2, y + titleBar * 0.62);
   ctx.textAlign = "left";
 
-  roundRectPath(ctx, 0.5, 0.5, w - 1, h - 1, radius);
+  roundRectPath(ctx, x + 0.5, y + 0.5, w - 1, h - 1, radius);
   ctx.strokeStyle = palette.border;
   ctx.lineWidth = Math.max(0.5, 0.5 * s);
   ctx.stroke();
@@ -632,27 +660,27 @@ function drawMacOSChrome(ctx, layout, opts) {
 function drawWireframeChrome(ctx, layout, opts) {
   const s = layout.scale;
   const inset = layout.pad;
-  const { w, h } = canvasSize(layout);
-  const solidFrameFill = opts?.background_mode === BACKGROUND_PRESET;
+  const { x, y, w, h } = chromeRect(layout);
+  const solidFrameFill = opts?.background_mode !== BACKGROUND_CUSTOM;
 
   if (solidFrameFill) {
     ctx.fillStyle = FRAME_FILL;
-    ctx.fillRect(0, 0, w, h);
+    ctx.fillRect(x, y, w, h);
   }
   ctx.strokeStyle = STROKE;
   ctx.lineWidth = 2 * s;
   ctx.setLineDash([5 * s, 4 * s]);
-  ctx.strokeRect(inset / 2, inset / 2, w - inset, h - inset);
+  ctx.strokeRect(x + inset / 2, y + inset / 2, w - inset, h - inset);
   ctx.beginPath();
-  ctx.moveTo(inset, inset + layout.title);
-  ctx.lineTo(w - inset, inset + layout.title);
+  ctx.moveTo(x + inset, y + inset + layout.title);
+  ctx.lineTo(x + w - inset, y + inset + layout.title);
   ctx.stroke();
   ctx.setLineDash([]);
-  drawTrafficLights(ctx, layout, s);
+  drawTrafficLights(ctx, layout, s, x, y);
   ctx.fillStyle = "#e4e4e7";
   ctx.font = `600 ${12 * s}px system-ui, sans-serif`;
   ctx.textAlign = "center";
-  ctx.fillText(opts.title || "tuile", w / 2, inset + layout.title * 0.62);
+  ctx.fillText(opts.title || "tuile", x + w / 2, y + inset + layout.title * 0.62);
   ctx.textAlign = "left";
 }
 
@@ -998,7 +1026,7 @@ export async function composeExportSVG({ screen, opts, viewerMetrics }) {
     const s = layout.renderScale;
     const stroke = STROKE;
     const dash = `${5 * s} ${4 * s}`;
-    if (options.background_mode === BACKGROUND_PRESET) {
+    if (options.background_mode !== BACKGROUND_CUSTOM) {
       svg += `<rect width="${layout.renderOuterW}" height="${layout.renderOuterH}" fill="${FRAME_FILL}" stroke="${stroke}" stroke-width="${2 * s}" stroke-dasharray="${dash}"/>`;
     } else {
       svg += `<rect width="${layout.renderOuterW}" height="${layout.renderOuterH}" fill="none" stroke="${stroke}" stroke-width="${2 * s}" stroke-dasharray="${dash}"/>`;
@@ -1015,10 +1043,10 @@ export async function composeExportSVG({ screen, opts, viewerMetrics }) {
     }
     svg += `<text x="${layout.renderOuterW / 2}" y="${layout.pad + layout.title * 0.62}" text-anchor="middle" fill="#e4e4e7" font-family="system-ui" font-size="${12 * s}" font-weight="600">${escapeXml(options.title || "tuile")}</text>`;
   } else {
-    if (options.background_mode === BACKGROUND_PRESET) {
+    if (options.background_mode !== BACKGROUND_CUSTOM) {
       svg += `<rect x="0" y="0" width="${layout.frameW}" height="${layout.frameH}" fill="${layout.termBg || TERM_BG}"/>`;
     }
-    svg += `<rect x="0" y="0" width="${layout.frameW}" height="${layout.frameH}" rx="${layout.radius}" fill="${options.background_mode === BACKGROUND_PRESET ? layout.frameBg : "none"}" stroke="${layout.border}" stroke-width="1"/>`;
+    svg += `<rect x="0" y="0" width="${layout.frameW}" height="${layout.frameH}" rx="${layout.radius}" fill="${options.background_mode === BACKGROUND_CUSTOM ? "none" : layout.frameBg}" stroke="${layout.border}" stroke-width="1"/>`;
   }
 
   svg += `<g transform="translate(${layout.termX},${layout.termY})"><rect width="${layout.termW}" height="${layout.termH}" fill="${TERM_BG}"/>`;

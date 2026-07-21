@@ -2459,6 +2459,7 @@ async function renderExportPreview() {
       return;
     }
     setExportPreviewImage(blob);
+    syncExportPreviewStage();
   } catch (err) {
     if (requestId !== exportPreviewRequest || !exportDialog?.open) {
       return;
@@ -2483,6 +2484,13 @@ function syncExportChromeFields() {
   }
 }
 
+function syncExportPreviewStage() {
+  const mode = exportBgMode?.value || "transparent";
+  const hasCustomFile = Boolean(exportBackgroundFile?.files?.[0]);
+  exportPreviewStage?.classList.toggle("has-custom-background", mode === "custom" && hasCustomFile);
+  exportPreviewStage?.classList.toggle("has-export-background", mode !== "transparent");
+}
+
 function syncExportBackgroundFields() {
   const mode = exportBgMode?.value || "transparent";
   const showCustom = mode === "custom";
@@ -2497,6 +2505,7 @@ function syncExportBackgroundFields() {
       }, EXPORT_CUSTOM_FADE_MS);
     }
   }
+  syncExportPreviewStage();
   syncExportChromeFields();
 }
 

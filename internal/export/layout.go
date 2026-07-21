@@ -37,6 +37,11 @@ type Layout struct {
 	OSStyle       string
 	WindowRadius  int
 	Border        int
+	ScenePad      int
+	ChromeW       int
+	ChromeH       int
+	ChromeOffsetX int
+	ChromeOffsetY int
 }
 
 // EffectiveFontPx returns the export font size with a readability floor.
@@ -87,7 +92,7 @@ func ComputeLayout(snap term.ScreenSnapshot, opts Options) Layout {
 			}
 			renderOuterW := termW + termInset*2
 			renderOuterH := titleBar + termH + termInset*2
-			return Layout{
+			return applyCustomBackgroundScene(Layout{
 				ExportScale:  exportScale,
 				RenderScale:  renderScale,
 				Downscale:    renderScale / exportScale,
@@ -108,7 +113,7 @@ func ComputeLayout(snap term.ScreenSnapshot, opts Options) Layout {
 				OuterH:       renderOuterH / (renderScale / exportScale),
 				TermOffsetX:  termInset,
 				TermOffsetY:  titleBar + termInset,
-			}
+			}, opts)
 		}
 
 		pad := ChromePadding() * renderScale
@@ -116,7 +121,7 @@ func ComputeLayout(snap term.ScreenSnapshot, opts Options) Layout {
 		inner := ChromeInnerGap() * renderScale
 		renderOuterW := termW + pad*2
 		renderOuterH := pad + title + inner + termH + pad
-		return Layout{
+		return applyCustomBackgroundScene(Layout{
 			ExportScale:  exportScale,
 			RenderScale:  renderScale,
 			Downscale:    renderScale / exportScale,
@@ -137,7 +142,7 @@ func ComputeLayout(snap term.ScreenSnapshot, opts Options) Layout {
 			OuterH:       renderOuterH / (renderScale / exportScale),
 			TermOffsetX:  pad,
 			TermOffsetY:  pad + title + inner,
-		}
+		}, opts)
 	}
 
 	framePad := ViewerFramePad() * renderScale
@@ -145,7 +150,7 @@ func ComputeLayout(snap term.ScreenSnapshot, opts Options) Layout {
 	frameH := termH + framePad*2
 	renderOuterW := frameW
 	renderOuterH := frameH
-	return Layout{
+	return applyCustomBackgroundScene(Layout{
 		ExportScale:  exportScale,
 		RenderScale:  renderScale,
 		Downscale:    renderScale / exportScale,
@@ -166,7 +171,31 @@ func ComputeLayout(snap term.ScreenSnapshot, opts Options) Layout {
 		OuterH:       renderOuterH / (renderScale / exportScale),
 		TermOffsetX:  framePad,
 		TermOffsetY:  framePad,
+	}, opts)
+}
+
+func applyCustomBackgroundScene(layout Layout, opts Options) Layout {
+	layout.ChromeW = layout.RenderOuterW
+	layout.ChromeH = layout.RenderOuterH
+	if opts.BackgroundMode != BackgroundCustom {
+		return layout
 	}
+	scenePad := CustomBackgroundScenePad() * layout.RenderScale
+	layout.ScenePad = scenePad
+	layout.ChromeOffsetX = scenePad
+	layout.ChromeOffsetY = scenePad
+	layout.RenderOuterW = layout.ChromeW + scenePad*2
+	layout.RenderOuterH = layout.ChromeH + scenePad*2
+	if layout.Downscale > 0 {
+		layout.OuterW = layout.RenderOuterW / layout.Downscale
+		layout.OuterH = layout.RenderOuterH / layout.Downscale
+	} else {
+		layout.OuterW = layout.RenderOuterW
+		layout.OuterH = layout.RenderOuterH
+	}
+	layout.TermOffsetX += scenePad
+	layout.TermOffsetY += scenePad
+	return layout
 }
 
 func layoutCellGeometry(cols, rows, fontPx, renderScale int, opts Options) (cellW, cellH, termW, termH int) {

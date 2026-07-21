@@ -5,6 +5,8 @@ import {
   BACKGROUND_CUSTOM,
   BACKGROUND_PRESET,
   BACKGROUND_PRESETS,
+  BACKGROUND_TRANSPARENT,
+  CUSTOM_BACKGROUND_SCENE_PAD,
   CHROME_MINIMAL,
   CHROME_OS,
   OS_STYLE_MACOS,
@@ -144,6 +146,36 @@ describe("export-options", () => {
     });
     assert.equal(custom.frameBg, custom.termBg);
     assert.notEqual(custom.frameBg, preset.frameBg);
+  });
+
+  it("transparent minimal chrome keeps opaque viewer frame fill", () => {
+    const transparent = viewerFrameMetrics(1, {
+      ...defaultExportOptions(),
+      background_mode: BACKGROUND_TRANSPARENT,
+    });
+    const custom = viewerFrameMetrics(1, {
+      ...defaultExportOptions(),
+      background_mode: BACKGROUND_CUSTOM,
+    });
+    assert.notEqual(transparent.frameBg, custom.frameBg);
+  });
+
+  it("custom background expands os chrome layout with scene margin", () => {
+    const screen = { cols: 10, rows: 2, lines: ["a", "b"] };
+    const base = computeLayout(screen, {
+      ...defaultExportOptions(),
+      chrome_preset: CHROME_OS,
+      chrome_os_style: OS_STYLE_MACOS,
+    });
+    const custom = computeLayout(screen, {
+      ...defaultExportOptions(),
+      chrome_preset: CHROME_OS,
+      chrome_os_style: OS_STYLE_MACOS,
+      background_mode: BACKGROUND_CUSTOM,
+    });
+    assert.ok(custom.outerW > base.outerW);
+    assert.ok(custom.outerH > base.outerH);
+    assert.equal(custom.scenePad, CUSTOM_BACKGROUND_SCENE_PAD * custom.renderScale);
   });
 
   it("exportFilename uses title and sanitizes unsafe chars", () => {

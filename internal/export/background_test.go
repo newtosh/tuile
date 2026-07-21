@@ -85,11 +85,71 @@ func TestRenderPNGCustomBackgroundShowsThroughMinimalChrome(t *testing.T) {
 		t.Fatal(err)
 	}
 	layout := export.ComputeLayout(snap, opts)
-	sampleX := layout.FramePad / 2
-	sampleY := layout.FramePad / 2
+	sampleX := layout.ScenePad + layout.FramePad/2
+	sampleY := layout.ScenePad + layout.FramePad/2
 	_, _, b, _ := img.RGBAAt(sampleX, sampleY).RGBA()
 	if b>>8 < 200 {
 		t.Fatalf("frame padding blue channel = %d want custom background visible at (%d,%d)", b>>8, sampleX, sampleY)
+	}
+}
+func TestRenderPNGCustomBackgroundShowsThroughMacOSChrome(t *testing.T) {
+	opts := export.DefaultOptions()
+	opts.BackgroundMode = export.BackgroundCustom
+	opts.ChromePreset = export.ChromeOS
+	opts.ChromeOSStyle = export.OSStyleMacOS
+	opts.Scale = 2
+	snap := term.ScreenSnapshot{Cols: 6, Rows: 1, Lines: []string{"ok"}}
+	pngBytes, err := export.RenderPNGWithBackground(snap, opts, bytes.NewReader(solidPNG(t, 255, 0, 0)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	img, err := pngDecodeRGBA(pngBytes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	layout := export.ComputeLayout(snap, opts)
+	r, _, _, _ := img.RGBAAt(layout.ScenePad/2, layout.ScenePad/2).RGBA()
+	if r>>8 < 200 {
+		t.Fatalf("scene margin red channel = %d want custom background visible", r>>8)
+	}
+}
+
+func TestComputeLayoutExpandsCustomBackgroundScene(t *testing.T) {
+	opts := export.DefaultOptions()
+	opts.BackgroundMode = export.BackgroundCustom
+	opts.ChromePreset = export.ChromeOS
+	opts.ChromeOSStyle = export.OSStyleMacOS
+	snap := term.ScreenSnapshot{Cols: 10, Rows: 2, Lines: []string{"a", "b"}}
+	transparent := export.DefaultOptions()
+	transparent.ChromePreset = export.ChromeOS
+	transparent.ChromeOSStyle = export.OSStyleMacOS
+	base := export.ComputeLayout(snap, transparent)
+	custom := export.ComputeLayout(snap, opts)
+	if custom.OuterW <= base.OuterW || custom.OuterH <= base.OuterH {
+		t.Fatalf("custom outer = %dx%d base = %dx%d want larger canvas", custom.OuterW, custom.OuterH, base.OuterW, base.OuterH)
+	}
+	if custom.ScenePad == 0 {
+		t.Fatal("expected scene pad for custom background")
+	}
+}
+
+func TestRenderPNGTransparentMinimalChromeHasOpaqueFrame(t *testing.T) {
+	opts := export.DefaultOptions()
+	opts.BackgroundMode = export.BackgroundTransparent
+	snap := term.ScreenSnapshot{Cols: 6, Rows: 1, Lines: []string{"ok"}}
+	pngBytes, err := export.RenderPNG(snap, opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	img, err := pngDecodeRGBA(pngBytes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	layout := export.ComputeLayout(snap, opts)
+	sampleX := layout.FramePad / 2
+	sampleY := layout.FramePad / 2
+	if a := img.RGBAAt(sampleX, sampleY).A; a == 0 {
+		t.Fatalf("frame padding alpha = 0 want opaque viewer chrome at (%d,%d)", sampleX, sampleY)
 	}
 }
 
