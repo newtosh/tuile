@@ -1,4 +1,5 @@
 import { initViewerIcons, mountIcon } from "./icons.js";
+import { installControlInput } from "./control-input.js";
 import { sessions as $sessions, activeSessionId as $activeSessionId, uiStatus, uiBadge } from "./state.js";
 import {
   defaultTerminalThemeIdForAppearance,
@@ -62,7 +63,8 @@ const statusBar = document.getElementById("status-bar");
 const statusMessage = document.getElementById("status-message");
 const zoomOutBtn = document.getElementById("zoom-out");
 const zoomInBtn = document.getElementById("zoom-in");
-const zoomResetBtn = document.getElementById("zoom-reset");
+const zoomFitBtn = document.getElementById("zoom-fit");
+const zoomLevelEl = document.getElementById("zoom-level");
 const takeoverBtn = document.getElementById("takeover");
 const releaseBtn = document.getElementById("release");
 const reconnectBtn = document.getElementById("reconnect");
@@ -103,7 +105,6 @@ let sessionId = params.get("session");
 let token = params.get("token");
 let controlling = false;
 let ws = null;
-let resizeTimer = null;
 let wsLoadRetries = 0;
 let wsRetryTimer = null;
 let pollTimer = null;
@@ -126,12 +127,16 @@ const DEFAULT_FONT_SIZE = 20;
 let observeBaseFont = DEFAULT_FONT_SIZE;
 const OBSERVE_FONT_MIN = 14;
 const OBSERVE_FONT_MAX = 64;
-const OBSERVE_VIEW_INSET = 4;
+const OBSERVE_VIEW_INSET = 8;
 const GRID_FRAME_PAD = 14;
+const STAGE_FRAME_SHADOW_PAD = 6;
+const GRID_LABEL_RESERVE = { right: 72, bottom: 32 };
 const ZOOM_KEY = "tuile_zoom";
+const ZOOM_MODE_KEY = "tuile_zoom_mode";
 const ZOOM_MIN = 0.5;
 const ZOOM_MAX = 1;
 const ZOOM_STEP = 0.05;
+const NARROW_VIEWPORT_PX = 900;
 const WEBGL_KEY = "tuile_webgl";
 const LEGACY_LIGATURES_KEY = "tuile_ligatures";
 const APP_APPEARANCE_KEY = "tuile_app_appearance";
@@ -140,7 +145,11 @@ const FONT_FAMILY_KEY = "tuile_font_family";
 const SESSION_PANEL_COLLAPSED_KEY = "tuile_session_panel_collapsed";
 const APPEARANCE_HINT_DISMISS_PREFIX = "tuile_appearance_hint_dismiss";
 const DEFAULT_FONT_FAMILY = "'JetBrainsMono Nerd Font', monospace";
-let observeZoom = clampZoom(parseFloat(localStorage.getItem(ZOOM_KEY)) || 1);
+let zoomMode = localStorage.getItem(ZOOM_MODE_KEY) === "manual" ? "manual" : "fit";
+let observeZoom =
+  zoomMode === "manual" ? clampZoom(parseFloat(localStorage.getItem(ZOOM_KEY)) || 1) : 1;
+let narrowViewportActive = false;
+let userOpenedPanelOnNarrow = false;
 let fontSizeMode = localStorage.getItem(FONT_SIZE_KEY) || "20";
 
 if (params.get("bootstrap")) {
@@ -443,6 +452,7 @@ async function initAppVersion() {
   }
   if (label) {
     appVersionEl.textContent = label;
+    appVersionEl.title = label;
     appVersionEl.hidden = false;
   }
 }
@@ -501,6 +511,27 @@ term.loadAddon(unicode11Addon);
 term.unicode.activeVersion = "11";
 term.open(terminalWrap);
 syncTerminalInputMode();
+
+function screenBufferText() {
+  const buf = term.buffer.active;
+  const lines = [];
+  for (let i = 0; i < buf.length; i++) {
+    const line = buf.getLine(i);
+    lines.push(line ? line.translateToString(true) : "");
+  }
+  return lines.join("\n");
+}
+
+if (params.get("test") === "1") {
+  window.__tuileTest = {
+    screenText: screenBufferText,
+    isControlMode: () => controlling && terminalWrap.classList.contains("control-mode"),
+    isControlling: () => controlling,
+    inputLog: [],
+    writeLog: [],
+    hasTextarea: () => !!terminalWrap.querySelector(".xterm-helper-textarea"),
+  };
+}
 
 function readWebGLPref() {
   if (localStorage.getItem(WEBGL_KEY) !== null) {
@@ -578,12 +609,14 @@ function setWebGLRenderer(enabled) {
     }
     return;
   }
-  if (!enabled && webglAddon) {
-    webglAddon.dispose();
-    webglAddon = null;
-  }
   if (!enabled) {
-    setCanvasRenderer(true);
+    if (webglAddon) {
+      webglAddon.dispose();
+      webglAddon = null;
+    }
+    if (!controlling) {
+      setCanvasRenderer(true);
+    }
     refreshLigatures();
   }
 }
@@ -594,23 +627,87 @@ function clampZoom(value) {
   return Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, Math.round(value / ZOOM_STEP) * ZOOM_STEP));
 }
 
-function setObserveZoom(value, { persist = true, relayout = true } = {}) {
-  observeZoom = clampZoom(value);
-  if (persist) {
-    localStorage.setItem(ZOOM_KEY, String(observeZoom));
+function setObserveZoom(value, { persist = true, relayout = true, mode = null } = {}) {
+  if (mode) {
+    zoomMode = mode;
+    if (persist) {
+      localStorage.setItem(ZOOM_MODE_KEY, zoomMode);
+    }
+  }
+  if (zoomMode === "manual") {
+    observeZoom = clampZoom(value);
+    if (persist) {
+      localStorage.setItem(ZOOM_KEY, String(observeZoom));
+    }
+  } else if (relayout) {
+    scheduleTerminalLayout();
+    return;
+  } else {
+    const { targetW, targetH } = observeStageLayout();
+    observeZoom = computeFitZoom(targetW, targetH);
   }
   updateZoomControl();
-  if (relayout && !controlling) {
+  if (relayout) {
     scheduleTerminalLayout();
   }
 }
 
 function updateZoomControl() {
-  const pct = Math.round(observeZoom * 100);
-  zoomResetBtn.textContent = `${pct}%`;
-  zoomResetBtn.classList.toggle("is-custom", Math.abs(observeZoom - 1) > 0.001);
+  const pct = Math.round(observeZoomScale() * 100);
+  if (zoomLevelEl) {
+    zoomLevelEl.textContent = `${pct}%`;
+    const manual = zoomMode === "manual";
+    zoomLevelEl.classList.toggle("is-custom", manual && Math.abs(observeZoom - 1) > 0.001);
+  }
+  if (zoomFitBtn) {
+    const fitActive = zoomMode === "fit";
+    zoomFitBtn.classList.toggle("is-active", fitActive);
+    zoomFitBtn.setAttribute("aria-pressed", String(fitActive));
+  }
   zoomOutBtn.disabled = observeZoom <= ZOOM_MIN + 0.001;
   zoomInBtn.disabled = observeZoom >= ZOOM_MAX - 0.001;
+}
+
+function isNarrowViewport() {
+  return window.innerWidth <= NARROW_VIEWPORT_PX;
+}
+
+function setSessionPanelToggleHint(show) {
+  sessionPanelToggle?.classList.toggle("is-viewport-hint", show);
+}
+
+function syncSessionPanelForViewport() {
+  const narrow = isNarrowViewport();
+  if (narrow) {
+    if (!narrowViewportActive) {
+      narrowViewportActive = true;
+      userOpenedPanelOnNarrow = false;
+    }
+    const expanded = !layoutEl?.classList.contains("session-panel-collapsed");
+    if (expanded && !userOpenedPanelOnNarrow) {
+      setSessionPanelCollapsed(true, { persist: false });
+      setSessionPanelToggleHint(true);
+    } else if (!expanded) {
+      setSessionPanelToggleHint(!userOpenedPanelOnNarrow);
+    }
+    return;
+  }
+  if (narrowViewportActive) {
+    narrowViewportActive = false;
+    userOpenedPanelOnNarrow = false;
+    setSessionPanelToggleHint(false);
+    setSessionPanelCollapsed(initialSessionPanelCollapsed(), { persist: false });
+  }
+}
+
+function initSessionPanelLayout() {
+  if (isNarrowViewport()) {
+    narrowViewportActive = true;
+    setSessionPanelCollapsed(true, { persist: false });
+    setSessionPanelToggleHint(true);
+    return;
+  }
+  setSessionPanelCollapsed(initialSessionPanelCollapsed(), { persist: false });
 }
 
 function initialSessionPanelCollapsed() {
@@ -643,6 +740,20 @@ function setStatus(text) {
 
 function setControlChrome(isControl) {
   statusBar.classList.toggle("is-control", isControl);
+  statusMessage.classList.toggle("is-control-action", isControl);
+  if (isControl) {
+    statusMessage.title = "Click to release control";
+  } else {
+    statusMessage.removeAttribute("title");
+  }
+}
+
+function syncControlMenuState() {
+  const connected = Boolean(ws && ws.readyState === WebSocket.OPEN);
+  releaseBtn.disabled = !connected || !controlling;
+  takeoverBtn.disabled = !connected || controlling;
+  releaseBtn.classList.toggle("primary", controlling);
+  takeoverBtn.classList.toggle("primary", !controlling);
 }
 
 function setMode(mode, className = "") {
@@ -1328,7 +1439,9 @@ function observeZoomScale() {
 }
 
 function updateGridFrame(layout = null) {
-  if (!terminalGridFrame || controlling || !terminalWrap.classList.contains("observe-mode")) {
+  const staged =
+    terminalWrap.classList.contains("observe-mode") || terminalWrap.classList.contains("control-mode");
+  if (!terminalGridFrame || !staged) {
     hideGridFrame();
     return;
   }
@@ -1343,9 +1456,7 @@ function updateGridFrame(layout = null) {
     hideGridFrame();
     return;
   }
-  const inset = OBSERVE_VIEW_INSET;
-  const viewW = terminalWrap.clientWidth - inset * 2;
-  const viewH = terminalWrap.clientHeight - inset * 2;
+  const { inset, viewW, viewH } = observeStageLayout();
   const left = inset + (viewW - width) / 2;
   const top = inset + (viewH - height) / 2;
   const frameLeft = left - GRID_FRAME_PAD;
@@ -1374,9 +1485,7 @@ function positionObserveTerminal() {
   }
 
   const layoutOnce = () => {
-    const inset = OBSERVE_VIEW_INSET;
-    const viewW = terminalWrap.clientWidth - inset * 2;
-    const viewH = terminalWrap.clientHeight - inset * 2;
+    const { inset, viewW, viewH } = observeStageLayout();
     const zoom = observeZoomScale();
 
     clearObserveGridInlineSizes();
@@ -1430,30 +1539,61 @@ function maxFontForTarget(targetW, targetH, { cap } = {}) {
   return refineObserveFontSize(best, targetW, targetH);
 }
 
+function observeStageLayout() {
+  const inset = OBSERVE_VIEW_INSET;
+  const frameMargin = GRID_FRAME_PAD + STAGE_FRAME_SHADOW_PAD;
+  const wrapW = Math.max(1, terminalWrap?.clientWidth ?? 1);
+  const wrapH = Math.max(1, terminalWrap?.clientHeight ?? 1);
+  const viewW = Math.max(1, wrapW - inset * 2);
+  const viewH = Math.max(1, wrapH - inset * 2);
+  const targetW = Math.max(1, viewW - frameMargin * 2 - GRID_LABEL_RESERVE.right);
+  const targetH = Math.max(1, viewH - frameMargin * 2 - GRID_LABEL_RESERVE.bottom);
+  return { inset, viewW, viewH, targetW, targetH, frameMargin };
+}
+
+function computeFitZoom(targetW, targetH) {
+  const grid = measureTerminalGrid();
+  if (!grid.width || !grid.height) {
+    return 1;
+  }
+  return clampZoom(Math.min(targetW / grid.width, targetH / grid.height));
+}
+
 function fitObserveLayout() {
   clearTerminalTransform();
-  const inset = OBSERVE_VIEW_INSET;
-  const viewW = Math.max(1, terminalWrap.clientWidth - inset * 2);
-  const viewH = Math.max(1, terminalWrap.clientHeight - inset * 2);
+  const { targetW, targetH } = observeStageLayout();
 
   const preferredCap =
     fontSizeMode === "auto"
       ? OBSERVE_FONT_MAX
       : parseInt(fontSizeMode, 10) || DEFAULT_FONT_SIZE;
 
-  const best = maxFontForTarget(viewW, viewH, { cap: preferredCap });
+  const best = maxFontForTarget(targetW, targetH, { cap: preferredCap });
+
+  if (zoomMode === "fit") {
+    observeZoom = computeFitZoom(targetW, targetH);
+    updateZoomControl();
+  }
 
   positionObserveTerminal();
   return { fontSize: best };
 }
 
+function formatFontSizeStatusPart(actualSize) {
+  if (fontSizeMode === "auto") {
+    return `${actualSize}px`;
+  }
+  const requested = parseInt(fontSizeMode, 10) || DEFAULT_FONT_SIZE;
+  if (actualSize >= requested) {
+    return `${actualSize}px`;
+  }
+  return `${actualSize}px (from ${requested}px)`;
+}
+
 function formatObserveStatus({ fontSize }) {
-  const parts = [`Observe — ${ptyCols}×${ptyRows}`, `${fontSize}px`];
+  const parts = [`Observe — ${ptyCols}×${ptyRows}`, formatFontSizeStatusPart(fontSize)];
   if (Math.abs(observeZoom - 1) > 0.001) {
     parts.push(`zoom ${Math.round(observeZoom * 100)}%`);
-  }
-  if (fontSizeMode !== "auto") {
-    parts.push(fontSizeMode === String(fontSize) ? "fixed" : "clamped");
   }
   return parts.join(" · ");
 }
@@ -1485,33 +1625,29 @@ function decodeReplayB64(b64) {
   return stripLeadingPartialEscape(bytes);
 }
 
-function scaleTerminalObserve() {
+function formatControlStatus({ fontSize }) {
+  const parts = [`Control — ${ptyCols}×${ptyRows}`, formatFontSizeStatusPart(fontSize)];
+  if (Math.abs(observeZoom - 1) > 0.001) {
+    parts.push(`zoom ${Math.round(observeZoom * 100)}%`);
+  }
+  return parts.join(" · ");
+}
+
+function applyStagedTerminalLayout({ control = false } = {}) {
   terminalWrap.classList.add("observe-mode");
-  setControlChrome(false);
+  terminalWrap.classList.toggle("control-mode", control);
+  setControlChrome(control);
+  // Canvas renderer keeps ligatures/grid aligned; WebGL blanks after layout changes.
+  setWebGLRenderer(false);
+  term.resize(ptyCols, ptyRows);
   const layout = fitObserveLayout();
-  setStatus(formatObserveStatus(layout));
+  setStatus(control ? formatControlStatus(layout) : formatObserveStatus(layout));
+  refreshLigatures();
 }
 
 function applyTerminalLayout() {
   syncTerminalInputMode();
-  if (controlling) {
-    terminalWrap.classList.remove("observe-mode");
-    hideGridFrame();
-    setControlChrome(true);
-    clearTerminalTransform();
-    setWebGLRenderer(readWebGLPref());
-    term.options.fontSize = observeBaseFont;
-    fitAddon.fit();
-    scheduleHumanResize();
-    setStatus(`Control — ${term.cols}×${term.rows}`);
-    return;
-  }
-  // Observe mode uses the canvas renderer (not DOM) so ligatures and grid metrics stay aligned.
-  // WebGL loses its glyph atlas after observe layout (blank canvas at <100% zoom).
-  setWebGLRenderer(false);
-  term.resize(ptyCols, ptyRows);
-  scaleTerminalObserve();
-  refreshLigatures();
+  applyStagedTerminalLayout({ control: controlling });
 }
 
 function scheduleTerminalLayout() {
@@ -1562,6 +1698,7 @@ async function loadScreenSnapshot({ forceFinish = false } = {}) {
   ptyCols = body.screen?.cols || ptyCols;
   ptyRows = body.screen?.rows || ptyRows;
   term.reset();
+  syncTerminalInputMode();
   term.resize(ptyCols, ptyRows);
   refreshLigatures();
   if (body.replay_b64) {
@@ -1631,13 +1768,15 @@ function startSyncPoll() {
 function writeWSChunk(data) {
   return new Promise((resolve) => {
     const write = () => {
-      let chunk = data;
-      if (chunk instanceof Uint8Array) {
-        chunk = stripLeadingPartialEscape(chunk);
-        if (!chunk.length) {
-          resolve();
-          return;
-        }
+      const chunk = data;
+      if (chunk instanceof Uint8Array && !chunk.length) {
+        resolve();
+        return;
+      }
+      if (window.__tuileTest?.writeLog) {
+        window.__tuileTest.writeLog.push(
+          typeof chunk === "string" ? chunk : String.fromCharCode(...chunk),
+        );
       }
       term.write(chunk, () => {
         maybeFinishInitialSync();
@@ -1675,8 +1814,7 @@ function disconnectWS() {
   wsWriteChain = Promise.resolve();
   controlling = false;
   syncTerminalInputMode();
-  takeoverBtn.disabled = true;
-  releaseBtn.disabled = true;
+  syncControlMenuState();
 }
 
 function connectWS() {
@@ -1691,8 +1829,7 @@ function connectWS() {
   setMode("connecting");
   setStatus("Connecting WebSocket…");
   setSessionLoading(true, "Connecting to session…");
-  takeoverBtn.disabled = true;
-  releaseBtn.disabled = true;
+  syncControlMenuState();
   awaitingInitialSync = true;
   replayPrimed = false;
   disconnectWS();
@@ -1701,6 +1838,7 @@ function connectWS() {
   startSyncPoll();
 
   term.reset();
+  syncTerminalInputMode();
   term.resize(ptyCols, ptyRows);
   refreshLigatures();
 
@@ -1724,8 +1862,7 @@ function connectWS() {
     clearTimeout(wsConnectTimeoutTimer);
     wsConnectTimeoutTimer = null;
     setMode(controlling ? "control" : "observe", controlling ? "control" : "observe");
-    takeoverBtn.disabled = controlling;
-    releaseBtn.disabled = !controlling;
+    syncControlMenuState();
     setSessionLoading(true, "Syncing terminal…");
     setStatus("Syncing terminal…");
     updateSessionLoadingState();
@@ -1775,8 +1912,7 @@ function connectWS() {
     clearTimeout(wsConnectTimeoutTimer);
     wsConnectTimeoutTimer = null;
     if (uiBadge.get().text === "error") {
-      takeoverBtn.disabled = true;
-      releaseBtn.disabled = true;
+      syncControlMenuState();
       return;
     }
     if (awaitingInitialSync || sessionLoading) {
@@ -1785,8 +1921,7 @@ function connectWS() {
     }
     setMode("disconnected");
     setStatus("Disconnected. Reconnect or pick another session.");
-    takeoverBtn.disabled = true;
-    releaseBtn.disabled = true;
+    syncControlMenuState();
   };
 }
 
@@ -2026,9 +2161,23 @@ function startPolling() {
   }, POLL_MS);
 }
 
+let lastHumanInput = { byte: "", at: 0 };
+
 function sendInput(data) {
   if (!ws || ws.readyState !== WebSocket.OPEN) {
     return;
+  }
+  if (window.__tuileTest?.inputLog) {
+    window.__tuileTest.inputLog.push(data);
+  }
+  if (controlling && data.length === 1) {
+    const now = performance.now();
+    if (data === lastHumanInput.byte && now - lastHumanInput.at < 20) {
+      return;
+    }
+    lastHumanInput = { byte: data, at: now };
+  } else if (controlling) {
+    lastHumanInput = { byte: "", at: 0 };
   }
   if (controlling || isTerminalResponse(data)) {
     ws.send(data);
@@ -2047,11 +2196,37 @@ function isTerminalResponse(data) {
   return kind === 0x5d || kind === 0x5b || kind === 0x50;
 }
 
-function syncTerminalInputMode() {
-  term.options.disableStdin = !controlling;
+function shouldSkipControlKey(domEvent) {
+  return (
+    domEvent.key === "Shift" ||
+    domEvent.key === "Control" ||
+    domEvent.key === "Alt" ||
+    domEvent.key === "Meta"
+  );
 }
 
+function syncTerminalInputMode() {
+  term.options.disableStdin = true;
+  if (controlling) {
+    focusControlInput();
+  } else {
+    const ta = terminalWrap.querySelector(".xterm-helper-textarea");
+    if (ta) {
+      ta.readOnly = false;
+    }
+  }
+}
+
+const { focusRelay: focusControlInput } = installControlInput(term, terminalWrap, {
+  isControlling: () => controlling,
+  send: (data) => sendInput(data),
+  shouldSkipKey: shouldSkipControlKey,
+});
+
 term.onData((data) => {
+  if (!isTerminalResponse(data)) {
+    return;
+  }
   sendInput(data);
 });
 
@@ -2064,30 +2239,56 @@ async function postJSON(path, method = "POST") {
   return res.json();
 }
 
+async function enterSessionControl() {
+  await postJSON(`/v1/sessions/${sessionId}/takeover`);
+  controlling = true;
+  syncTerminalInputMode();
+  syncControlMenuState();
+  setMode("control", "control");
+  setSettingsOpen(false);
+  applyTerminalLayout();
+}
+
+async function releaseSessionControl() {
+  await postJSON(`/v1/sessions/${sessionId}/release`);
+  controlling = false;
+  syncTerminalInputMode();
+  syncControlMenuState();
+  setMode("observe", "observe");
+  setSettingsOpen(false);
+  awaitingInitialSync = true;
+  setSessionLoading(true, "Refreshing terminal…");
+  term.reset();
+  syncTerminalInputMode();
+  term.resize(ptyCols, ptyRows);
+  refreshLigatures();
+  await loadScreenSnapshot({ forceFinish: true });
+}
+
 takeoverBtn.addEventListener("click", async () => {
   try {
-    await postJSON(`/v1/sessions/${sessionId}/takeover`);
-    controlling = true;
-    syncTerminalInputMode();
-    setMode("control", "control");
-    applyTerminalLayout();
+    await enterSessionControl();
   } catch (err) {
-    setStatus(`Takeover failed: ${err.message}`);
+    setStatus(`Control failed: ${err.message}`);
   }
 });
 
 releaseBtn.addEventListener("click", async () => {
   try {
-    await postJSON(`/v1/sessions/${sessionId}/release`);
-    controlling = false;
-    syncTerminalInputMode();
-    setMode("observe", "observe");
-    awaitingInitialSync = true;
-    setSessionLoading(true, "Refreshing terminal…");
-    term.reset();
-    term.resize(ptyCols, ptyRows);
-    refreshLigatures();
-    await loadScreenSnapshot({ forceFinish: true });
+    await releaseSessionControl();
+  } catch (err) {
+    setStatus(`Release failed: ${err.message}`);
+    setSessionLoading(false);
+    awaitingInitialSync = false;
+  }
+});
+
+statusMessage.addEventListener("click", async () => {
+  if (!controlling) {
+    return;
+  }
+  try {
+    await releaseSessionControl();
   } catch (err) {
     setStatus(`Release failed: ${err.message}`);
     setSessionLoading(false);
@@ -2132,15 +2333,16 @@ sessionInactiveMins.addEventListener("change", () => {
   renderSessionList(knownSessions);
 });
 
-bootstrapForm.addEventListener("submit", (ev) => {
+bootstrapForm?.addEventListener("submit", (ev) => {
   ev.preventDefault();
-  bootstrapSecret = bootstrapInput.value.trim();
+  bootstrapSecret = bootstrapInput?.value.trim() ?? "";
   if (bootstrapSecret) {
     localStorage.setItem(BOOTSTRAP_KEY, bootstrapSecret);
   } else {
     localStorage.removeItem(BOOTSTRAP_KEY);
   }
   refreshSessions({ autoAttach: true });
+  setSettingsOpen(false);
 });
 
 fontSelect?.addEventListener("change", () => {
@@ -2193,36 +2395,14 @@ webglToggle.addEventListener("change", () => {
   if (controlling) {
     setWebGLRenderer(webglToggle.checked);
     scheduleTerminalLayout();
-    if (sessionId && token) {
-      attachToSession(sessionId, { force: true });
-    }
     return;
   }
   setWebGLRenderer(false);
   scheduleTerminalLayout();
 });
 
-function scheduleHumanResize() {
-  if (!controlling) {
-    return;
-  }
-  clearTimeout(resizeTimer);
-  resizeTimer = setTimeout(async () => {
-    ptyCols = term.cols;
-    ptyRows = term.rows;
-    try {
-      await fetch(apiURL(`/v1/sessions/${sessionId}/human/resize`), {
-        method: "POST",
-        headers: authHeaders(),
-        body: JSON.stringify({ cols: ptyCols, rows: ptyRows }),
-      });
-    } catch {
-      // cosmetic fit still applies locally
-    }
-  }, 150);
-}
-
 window.addEventListener("resize", () => {
+  syncSessionPanelForViewport();
   scheduleTerminalLayout();
 });
 
@@ -2231,39 +2411,60 @@ new ResizeObserver(() => {
 }).observe(terminalWrap);
 
 zoomOutBtn.addEventListener("click", () => {
-  setObserveZoom(observeZoom - ZOOM_STEP);
+  const base = zoomMode === "fit" ? observeZoomScale() : observeZoom;
+  setObserveZoom(base - ZOOM_STEP, { mode: "manual" });
 });
 
 zoomInBtn.addEventListener("click", () => {
-  setObserveZoom(observeZoom + ZOOM_STEP);
+  const base = zoomMode === "fit" ? observeZoomScale() : observeZoom;
+  setObserveZoom(base + ZOOM_STEP, { mode: "manual" });
 });
 
-zoomResetBtn.addEventListener("click", () => {
-  setObserveZoom(1);
+zoomFitBtn?.addEventListener("click", () => {
+  setObserveZoom(observeZoom, { mode: "fit" });
 });
 
-setSessionPanelCollapsed(initialSessionPanelCollapsed(), { persist: false });
+initSessionPanelLayout();
 sessionPanelToggle?.addEventListener("click", () => {
-  setSessionPanelCollapsed(layoutEl?.classList.contains("session-panel-collapsed") !== true);
+  const collapsed = layoutEl?.classList.contains("session-panel-collapsed") === true;
+  const nextCollapsed = !collapsed;
+  if (!nextCollapsed && isNarrowViewport()) {
+    userOpenedPanelOnNarrow = true;
+    setSessionPanelToggleHint(false);
+  } else if (nextCollapsed && isNarrowViewport()) {
+    userOpenedPanelOnNarrow = false;
+    setSessionPanelToggleHint(true);
+  }
+  setSessionPanelCollapsed(nextCollapsed);
 });
 
 document.addEventListener("keydown", (ev) => {
-  if (controlling || ev.metaKey || ev.ctrlKey || ev.altKey) {
-    return;
-  }
   const tag = ev.target?.tagName;
   if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") {
     return;
   }
-  if (ev.key === "-" || ev.key === "_") {
-    ev.preventDefault();
-    setObserveZoom(observeZoom - ZOOM_STEP);
-  } else if (ev.key === "=" || ev.key === "+") {
-    ev.preventDefault();
-    setObserveZoom(observeZoom + ZOOM_STEP);
-  } else if (ev.key === "0") {
-    ev.preventDefault();
-    setObserveZoom(1);
+  const zoomOut = ev.key === "-" || ev.key === "_";
+  const zoomIn = ev.key === "=" || ev.key === "+";
+  const zoomFit = ev.key === "0";
+  if (!zoomOut && !zoomIn && !zoomFit) {
+    return;
+  }
+  if (controlling) {
+    if (!ev.ctrlKey || ev.metaKey || ev.altKey) {
+      return;
+    }
+  } else if (ev.metaKey || ev.ctrlKey || ev.altKey) {
+    return;
+  }
+  ev.preventDefault();
+  if (zoomOut) {
+    const base = zoomMode === "fit" ? observeZoomScale() : observeZoom;
+    setObserveZoom(base - ZOOM_STEP, { mode: "manual" });
+  } else if (zoomIn) {
+    const base = zoomMode === "fit" ? observeZoomScale() : observeZoom;
+    setObserveZoom(base + ZOOM_STEP, { mode: "manual" });
+  } else {
+    setObserveZoom(observeZoom, { mode: "fit" });
   }
 });
 

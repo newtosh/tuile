@@ -1,0 +1,9 @@
+Build a minimal Bubble Tea TUI in this workspace (/tmp/tuile-demo).
+
+Requirements:
+- Single main.go, standard module (go mod init demo)
+- 3-item list, j/k navigate, space toggles selection, q quits
+- lipgloss border around the list
+- Run with: go run .
+
+Keep it small — finish in one pass, then run go mod tidy and go run .

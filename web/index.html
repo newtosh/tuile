@@ -143,13 +143,29 @@
               Sessions default to 120×36. Non-default sizes show as “resized” in the sidebar.
             </p>
             <div class="menu-divider" role="separator"></div>
-            <button id="takeover" type="button" class="menu-action primary" disabled>
-              <span class="icon-slot" data-icon="hand"></span>
-              <span>Take over</span>
-            </button>
-            <button id="release" type="button" class="menu-action" disabled>
+            <form id="bootstrap-form" class="bootstrap-form">
+              <label class="menu-label" for="bootstrap-secret">Bootstrap secret</label>
+              <div class="bootstrap-row">
+                <input
+                  id="bootstrap-secret"
+                  type="password"
+                  autocomplete="off"
+                  placeholder="From tuile serve startup"
+                />
+                <button type="submit" class="icon-btn" title="Save bootstrap secret">
+                  <span id="bootstrap-save-icon" class="icon-slot"></span>
+                </button>
+              </div>
+              <p class="menu-note menu-note-muted">Needed to discover sessions. Saved in this browser only.</p>
+            </form>
+            <div class="menu-divider" role="separator"></div>
+            <button id="release" type="button" class="menu-action primary" disabled>
               <span class="icon-slot" data-icon="undo-2"></span>
               <span>Release</span>
+            </button>
+            <button id="takeover" type="button" class="menu-action" disabled>
+              <span class="icon-slot" data-icon="hand"></span>
+              <span>Control</span>
             </button>
             <button id="reconnect" type="button" class="menu-action">
               <span class="icon-slot" data-icon="plug-zap"></span>
@@ -197,21 +213,6 @@
             </button>
           </div>
         </div>
-        <form id="bootstrap-form" class="bootstrap-form">
-          <label for="bootstrap-secret">Bootstrap secret</label>
-          <div class="bootstrap-row">
-            <input
-              id="bootstrap-secret"
-              type="password"
-              autocomplete="off"
-              placeholder="From tuile serve startup"
-            />
-            <button type="submit" class="icon-btn" title="Save bootstrap secret">
-              <span id="bootstrap-save-icon" class="icon-slot"></span>
-            </button>
-          </div>
-          <p class="hint">Needed to discover sessions. Saved in this browser only.</p>
-        </form>
         <ul id="session-list" class="session-list"></ul>
         <p id="session-empty" class="session-empty" hidden>No active sessions — waiting…</p>
         <div class="session-panel-footer">
@@ -240,11 +241,19 @@
     </div>
     <footer id="status-bar">
       <div class="status-zoom" role="group" aria-label="Viewport zoom">
+        <span id="zoom-level" class="status-zoom-value" aria-live="polite">100%</span>
+        <button
+          id="zoom-fit"
+          type="button"
+          class="status-btn status-zoom-fit is-active"
+          title="Fit terminal to viewport"
+          aria-pressed="true"
+        >
+          <span id="zoom-fit-icon" class="icon-slot"></span>
+          <span class="status-zoom-fit-label">Fit</span>
+        </button>
         <button id="zoom-out" type="button" class="status-btn" title="Zoom out (−)">
           <span id="zoom-out-icon" class="icon-slot"></span>
-        </button>
-        <button id="zoom-reset" type="button" class="status-btn status-zoom-value" title="Reset zoom">
-          100%
         </button>
         <button id="zoom-in" type="button" class="status-btn" title="Zoom in (+)">
           <span id="zoom-in-icon" class="icon-slot"></span>

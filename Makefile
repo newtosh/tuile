@@ -36,4 +36,8 @@ race:
 test-integration:
 	go test -tags=integration ./test/integration/...
 
+test-control-input:
+	@chmod +x scripts/test-control-input.sh scripts/test-control-input-playwright.cjs
+	@./scripts/test-control-input.sh
+
 test-browser: test-integration

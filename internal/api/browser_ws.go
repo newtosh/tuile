@@ -142,6 +142,7 @@ func (s *Server) serveSessionWS(w http.ResponseWriter, r *http.Request, sess *se
 	}()
 
 	go func() {
+		var inputDedupe wsInputDedupe
 		for {
 			typ, data, err := conn.Read(ctx)
 			if err != nil {
@@ -159,6 +160,9 @@ func (s *Server) serveSessionWS(w http.ResponseWriter, r *http.Request, sess *se
 				continue
 			}
 			if !auth.HasScope(claims, auth.ScopeHumanControl) {
+				continue
+			}
+			if inputDedupe.dropDuplicateByte(data) {
 				continue
 			}
 			if err := s.sess.WriteHumanInput(sess.ID, data, false, false); err != nil {
