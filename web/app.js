@@ -1,4 +1,5 @@
 import { initViewerIcons, mountIcon } from "./icons.js";
+import { installControlInput } from "./control-input.js";
 import { sessions as $sessions, activeSessionId as $activeSessionId, uiStatus, uiBadge } from "./state.js";
 import {
   defaultTerminalThemeIdForAppearance,
@@ -103,7 +104,6 @@ let sessionId = params.get("session");
 let token = params.get("token");
 let controlling = false;
 let ws = null;
-let resizeTimer = null;
 let wsLoadRetries = 0;
 let wsRetryTimer = null;
 let pollTimer = null;
@@ -502,6 +502,27 @@ term.unicode.activeVersion = "11";
 term.open(terminalWrap);
 syncTerminalInputMode();
 
+function screenBufferText() {
+  const buf = term.buffer.active;
+  const lines = [];
+  for (let i = 0; i < buf.length; i++) {
+    const line = buf.getLine(i);
+    lines.push(line ? line.translateToString(true) : "");
+  }
+  return lines.join("\n");
+}
+
+if (params.get("test") === "1") {
+  window.__tuileTest = {
+    screenText: screenBufferText,
+    isControlMode: () => controlling && terminalWrap.classList.contains("control-mode"),
+    isControlling: () => controlling,
+    inputLog: [],
+    writeLog: [],
+    hasTextarea: () => !!terminalWrap.querySelector(".xterm-helper-textarea"),
+  };
+}
+
 function readWebGLPref() {
   if (localStorage.getItem(WEBGL_KEY) !== null) {
     return localStorage.getItem(WEBGL_KEY) === "1";
@@ -578,12 +599,14 @@ function setWebGLRenderer(enabled) {
     }
     return;
   }
-  if (!enabled && webglAddon) {
-    webglAddon.dispose();
-    webglAddon = null;
-  }
   if (!enabled) {
-    setCanvasRenderer(true);
+    if (webglAddon) {
+      webglAddon.dispose();
+      webglAddon = null;
+    }
+    if (!controlling) {
+      setCanvasRenderer(true);
+    }
     refreshLigatures();
   }
 }
@@ -600,7 +623,7 @@ function setObserveZoom(value, { persist = true, relayout = true } = {}) {
     localStorage.setItem(ZOOM_KEY, String(observeZoom));
   }
   updateZoomControl();
-  if (relayout && !controlling) {
+  if (relayout) {
     scheduleTerminalLayout();
   }
 }
@@ -643,6 +666,20 @@ function setStatus(text) {
 
 function setControlChrome(isControl) {
   statusBar.classList.toggle("is-control", isControl);
+  statusMessage.classList.toggle("is-control-action", isControl);
+  if (isControl) {
+    statusMessage.title = "Click to release control";
+  } else {
+    statusMessage.removeAttribute("title");
+  }
+}
+
+function syncControlMenuState() {
+  const connected = Boolean(ws && ws.readyState === WebSocket.OPEN);
+  releaseBtn.disabled = !connected || !controlling;
+  takeoverBtn.disabled = !connected || controlling;
+  releaseBtn.classList.toggle("primary", controlling);
+  takeoverBtn.classList.toggle("primary", !controlling);
 }
 
 function setMode(mode, className = "") {
@@ -1328,7 +1365,9 @@ function observeZoomScale() {
 }
 
 function updateGridFrame(layout = null) {
-  if (!terminalGridFrame || controlling || !terminalWrap.classList.contains("observe-mode")) {
+  const staged =
+    terminalWrap.classList.contains("observe-mode") || terminalWrap.classList.contains("control-mode");
+  if (!terminalGridFrame || !staged) {
     hideGridFrame();
     return;
   }
@@ -1447,13 +1486,21 @@ function fitObserveLayout() {
   return { fontSize: best };
 }
 
+function formatFontSizeStatusPart(actualSize) {
+  if (fontSizeMode === "auto") {
+    return `${actualSize}px`;
+  }
+  const requested = parseInt(fontSizeMode, 10) || DEFAULT_FONT_SIZE;
+  if (actualSize >= requested) {
+    return `${actualSize}px`;
+  }
+  return `${actualSize}px (from ${requested}px)`;
+}
+
 function formatObserveStatus({ fontSize }) {
-  const parts = [`Observe — ${ptyCols}×${ptyRows}`, `${fontSize}px`];
+  const parts = [`Observe — ${ptyCols}×${ptyRows}`, formatFontSizeStatusPart(fontSize)];
   if (Math.abs(observeZoom - 1) > 0.001) {
     parts.push(`zoom ${Math.round(observeZoom * 100)}%`);
-  }
-  if (fontSizeMode !== "auto") {
-    parts.push(fontSizeMode === String(fontSize) ? "fixed" : "clamped");
   }
   return parts.join(" · ");
 }
@@ -1485,33 +1532,29 @@ function decodeReplayB64(b64) {
   return stripLeadingPartialEscape(bytes);
 }
 
-function scaleTerminalObserve() {
+function formatControlStatus({ fontSize }) {
+  const parts = [`Control — ${ptyCols}×${ptyRows}`, formatFontSizeStatusPart(fontSize)];
+  if (Math.abs(observeZoom - 1) > 0.001) {
+    parts.push(`zoom ${Math.round(observeZoom * 100)}%`);
+  }
+  return parts.join(" · ");
+}
+
+function applyStagedTerminalLayout({ control = false } = {}) {
   terminalWrap.classList.add("observe-mode");
-  setControlChrome(false);
+  terminalWrap.classList.toggle("control-mode", control);
+  setControlChrome(control);
+  // Canvas renderer keeps ligatures/grid aligned; WebGL blanks after layout changes.
+  setWebGLRenderer(false);
+  term.resize(ptyCols, ptyRows);
   const layout = fitObserveLayout();
-  setStatus(formatObserveStatus(layout));
+  setStatus(control ? formatControlStatus(layout) : formatObserveStatus(layout));
+  refreshLigatures();
 }
 
 function applyTerminalLayout() {
   syncTerminalInputMode();
-  if (controlling) {
-    terminalWrap.classList.remove("observe-mode");
-    hideGridFrame();
-    setControlChrome(true);
-    clearTerminalTransform();
-    setWebGLRenderer(readWebGLPref());
-    term.options.fontSize = observeBaseFont;
-    fitAddon.fit();
-    scheduleHumanResize();
-    setStatus(`Control — ${term.cols}×${term.rows}`);
-    return;
-  }
-  // Observe mode uses the canvas renderer (not DOM) so ligatures and grid metrics stay aligned.
-  // WebGL loses its glyph atlas after observe layout (blank canvas at <100% zoom).
-  setWebGLRenderer(false);
-  term.resize(ptyCols, ptyRows);
-  scaleTerminalObserve();
-  refreshLigatures();
+  applyStagedTerminalLayout({ control: controlling });
 }
 
 function scheduleTerminalLayout() {
@@ -1562,6 +1605,7 @@ async function loadScreenSnapshot({ forceFinish = false } = {}) {
   ptyCols = body.screen?.cols || ptyCols;
   ptyRows = body.screen?.rows || ptyRows;
   term.reset();
+  syncTerminalInputMode();
   term.resize(ptyCols, ptyRows);
   refreshLigatures();
   if (body.replay_b64) {
@@ -1631,13 +1675,15 @@ function startSyncPoll() {
 function writeWSChunk(data) {
   return new Promise((resolve) => {
     const write = () => {
-      let chunk = data;
-      if (chunk instanceof Uint8Array) {
-        chunk = stripLeadingPartialEscape(chunk);
-        if (!chunk.length) {
-          resolve();
-          return;
-        }
+      const chunk = data;
+      if (chunk instanceof Uint8Array && !chunk.length) {
+        resolve();
+        return;
+      }
+      if (window.__tuileTest?.writeLog) {
+        window.__tuileTest.writeLog.push(
+          typeof chunk === "string" ? chunk : String.fromCharCode(...chunk),
+        );
       }
       term.write(chunk, () => {
         maybeFinishInitialSync();
@@ -1675,8 +1721,7 @@ function disconnectWS() {
   wsWriteChain = Promise.resolve();
   controlling = false;
   syncTerminalInputMode();
-  takeoverBtn.disabled = true;
-  releaseBtn.disabled = true;
+  syncControlMenuState();
 }
 
 function connectWS() {
@@ -1691,8 +1736,7 @@ function connectWS() {
   setMode("connecting");
   setStatus("Connecting WebSocket…");
   setSessionLoading(true, "Connecting to session…");
-  takeoverBtn.disabled = true;
-  releaseBtn.disabled = true;
+  syncControlMenuState();
   awaitingInitialSync = true;
   replayPrimed = false;
   disconnectWS();
@@ -1701,6 +1745,7 @@ function connectWS() {
   startSyncPoll();
 
   term.reset();
+  syncTerminalInputMode();
   term.resize(ptyCols, ptyRows);
   refreshLigatures();
 
@@ -1724,8 +1769,7 @@ function connectWS() {
     clearTimeout(wsConnectTimeoutTimer);
     wsConnectTimeoutTimer = null;
     setMode(controlling ? "control" : "observe", controlling ? "control" : "observe");
-    takeoverBtn.disabled = controlling;
-    releaseBtn.disabled = !controlling;
+    syncControlMenuState();
     setSessionLoading(true, "Syncing terminal…");
     setStatus("Syncing terminal…");
     updateSessionLoadingState();
@@ -1775,8 +1819,7 @@ function connectWS() {
     clearTimeout(wsConnectTimeoutTimer);
     wsConnectTimeoutTimer = null;
     if (uiBadge.get().text === "error") {
-      takeoverBtn.disabled = true;
-      releaseBtn.disabled = true;
+      syncControlMenuState();
       return;
     }
     if (awaitingInitialSync || sessionLoading) {
@@ -1785,8 +1828,7 @@ function connectWS() {
     }
     setMode("disconnected");
     setStatus("Disconnected. Reconnect or pick another session.");
-    takeoverBtn.disabled = true;
-    releaseBtn.disabled = true;
+    syncControlMenuState();
   };
 }
 
@@ -2026,9 +2068,23 @@ function startPolling() {
   }, POLL_MS);
 }
 
+let lastHumanInput = { byte: "", at: 0 };
+
 function sendInput(data) {
   if (!ws || ws.readyState !== WebSocket.OPEN) {
     return;
+  }
+  if (window.__tuileTest?.inputLog) {
+    window.__tuileTest.inputLog.push(data);
+  }
+  if (controlling && data.length === 1) {
+    const now = performance.now();
+    if (data === lastHumanInput.byte && now - lastHumanInput.at < 20) {
+      return;
+    }
+    lastHumanInput = { byte: data, at: now };
+  } else if (controlling) {
+    lastHumanInput = { byte: "", at: 0 };
   }
   if (controlling || isTerminalResponse(data)) {
     ws.send(data);
@@ -2047,11 +2103,37 @@ function isTerminalResponse(data) {
   return kind === 0x5d || kind === 0x5b || kind === 0x50;
 }
 
-function syncTerminalInputMode() {
-  term.options.disableStdin = !controlling;
+function shouldSkipControlKey(domEvent) {
+  return (
+    domEvent.key === "Shift" ||
+    domEvent.key === "Control" ||
+    domEvent.key === "Alt" ||
+    domEvent.key === "Meta"
+  );
 }
 
+function syncTerminalInputMode() {
+  term.options.disableStdin = true;
+  if (controlling) {
+    focusControlInput();
+  } else {
+    const ta = terminalWrap.querySelector(".xterm-helper-textarea");
+    if (ta) {
+      ta.readOnly = false;
+    }
+  }
+}
+
+const { focusRelay: focusControlInput } = installControlInput(term, terminalWrap, {
+  isControlling: () => controlling,
+  send: (data) => sendInput(data),
+  shouldSkipKey: shouldSkipControlKey,
+});
+
 term.onData((data) => {
+  if (!isTerminalResponse(data)) {
+    return;
+  }
   sendInput(data);
 });
 
@@ -2064,30 +2146,56 @@ async function postJSON(path, method = "POST") {
   return res.json();
 }
 
+async function enterSessionControl() {
+  await postJSON(`/v1/sessions/${sessionId}/takeover`);
+  controlling = true;
+  syncTerminalInputMode();
+  syncControlMenuState();
+  setMode("control", "control");
+  setSettingsOpen(false);
+  applyTerminalLayout();
+}
+
+async function releaseSessionControl() {
+  await postJSON(`/v1/sessions/${sessionId}/release`);
+  controlling = false;
+  syncTerminalInputMode();
+  syncControlMenuState();
+  setMode("observe", "observe");
+  setSettingsOpen(false);
+  awaitingInitialSync = true;
+  setSessionLoading(true, "Refreshing terminal…");
+  term.reset();
+  syncTerminalInputMode();
+  term.resize(ptyCols, ptyRows);
+  refreshLigatures();
+  await loadScreenSnapshot({ forceFinish: true });
+}
+
 takeoverBtn.addEventListener("click", async () => {
   try {
-    await postJSON(`/v1/sessions/${sessionId}/takeover`);
-    controlling = true;
-    syncTerminalInputMode();
-    setMode("control", "control");
-    applyTerminalLayout();
+    await enterSessionControl();
   } catch (err) {
-    setStatus(`Takeover failed: ${err.message}`);
+    setStatus(`Control failed: ${err.message}`);
   }
 });
 
 releaseBtn.addEventListener("click", async () => {
   try {
-    await postJSON(`/v1/sessions/${sessionId}/release`);
-    controlling = false;
-    syncTerminalInputMode();
-    setMode("observe", "observe");
-    awaitingInitialSync = true;
-    setSessionLoading(true, "Refreshing terminal…");
-    term.reset();
-    term.resize(ptyCols, ptyRows);
-    refreshLigatures();
-    await loadScreenSnapshot({ forceFinish: true });
+    await releaseSessionControl();
+  } catch (err) {
+    setStatus(`Release failed: ${err.message}`);
+    setSessionLoading(false);
+    awaitingInitialSync = false;
+  }
+});
+
+statusMessage.addEventListener("click", async () => {
+  if (!controlling) {
+    return;
+  }
+  try {
+    await releaseSessionControl();
   } catch (err) {
     setStatus(`Release failed: ${err.message}`);
     setSessionLoading(false);
@@ -2193,34 +2301,11 @@ webglToggle.addEventListener("change", () => {
   if (controlling) {
     setWebGLRenderer(webglToggle.checked);
     scheduleTerminalLayout();
-    if (sessionId && token) {
-      attachToSession(sessionId, { force: true });
-    }
     return;
   }
   setWebGLRenderer(false);
   scheduleTerminalLayout();
 });
-
-function scheduleHumanResize() {
-  if (!controlling) {
-    return;
-  }
-  clearTimeout(resizeTimer);
-  resizeTimer = setTimeout(async () => {
-    ptyCols = term.cols;
-    ptyRows = term.rows;
-    try {
-      await fetch(apiURL(`/v1/sessions/${sessionId}/human/resize`), {
-        method: "POST",
-        headers: authHeaders(),
-        body: JSON.stringify({ cols: ptyCols, rows: ptyRows }),
-      });
-    } catch {
-      // cosmetic fit still applies locally
-    }
-  }, 150);
-}
 
 window.addEventListener("resize", () => {
   scheduleTerminalLayout();
@@ -2248,21 +2333,29 @@ sessionPanelToggle?.addEventListener("click", () => {
 });
 
 document.addEventListener("keydown", (ev) => {
-  if (controlling || ev.metaKey || ev.ctrlKey || ev.altKey) {
-    return;
-  }
   const tag = ev.target?.tagName;
   if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") {
     return;
   }
-  if (ev.key === "-" || ev.key === "_") {
-    ev.preventDefault();
+  const zoomOut = ev.key === "-" || ev.key === "_";
+  const zoomIn = ev.key === "=" || ev.key === "+";
+  const zoomReset = ev.key === "0";
+  if (!zoomOut && !zoomIn && !zoomReset) {
+    return;
+  }
+  if (controlling) {
+    if (!ev.ctrlKey || ev.metaKey || ev.altKey) {
+      return;
+    }
+  } else if (ev.metaKey || ev.ctrlKey || ev.altKey) {
+    return;
+  }
+  ev.preventDefault();
+  if (zoomOut) {
     setObserveZoom(observeZoom - ZOOM_STEP);
-  } else if (ev.key === "=" || ev.key === "+") {
-    ev.preventDefault();
+  } else if (zoomIn) {
     setObserveZoom(observeZoom + ZOOM_STEP);
-  } else if (ev.key === "0") {
-    ev.preventDefault();
+  } else {
     setObserveZoom(1);
   }
 });

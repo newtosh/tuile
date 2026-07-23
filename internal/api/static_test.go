@@ -68,7 +68,7 @@ func TestAssetsServed(t *testing.T) {
 	if ct := rec.Header().Get("Content-Type"); !strings.Contains(ct, "javascript") {
 		t.Fatalf("content-type = %q", ct)
 	}
-	if cc := rec.Header().Get("Cache-Control"); cc != "no-cache" {
+	if cc := rec.Header().Get("Cache-Control"); cc != "no-store" {
 		t.Fatalf("cache-control = %q", cc)
 	}
 }
