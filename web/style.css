@@ -661,7 +661,12 @@ button.primary {
   gap: 0.35rem;
 }
 
-.bootstrap-form label {
+.settings-menu .bootstrap-form {
+  gap: 0.45rem;
+}
+
+.bootstrap-form label,
+.bootstrap-form .menu-label {
   font-size: 0.8125rem;
   font-weight: 500;
   color: var(--muted);
@@ -677,6 +682,7 @@ button.primary {
   flex: 1;
   min-width: 0;
   font: inherit;
+  font-size: 0.875rem;
   background: var(--bg);
   color: var(--text);
   border: 1px solid var(--border);
@@ -686,7 +692,11 @@ button.primary {
 
 .bootstrap-row input:focus {
   outline: none;
-  border-color: color-mix(in srgb, var(--observe) 50%, var(--border));
+  border-color: color-mix(in srgb, var(--accent) 50%, var(--border));
+}
+
+.settings-menu .bootstrap-form .menu-note {
+  margin-top: -0.1rem;
 }
 
 .hint {

@@ -2240,15 +2240,16 @@ sessionInactiveMins.addEventListener("change", () => {
   renderSessionList(knownSessions);
 });
 
-bootstrapForm.addEventListener("submit", (ev) => {
+bootstrapForm?.addEventListener("submit", (ev) => {
   ev.preventDefault();
-  bootstrapSecret = bootstrapInput.value.trim();
+  bootstrapSecret = bootstrapInput?.value.trim() ?? "";
   if (bootstrapSecret) {
     localStorage.setItem(BOOTSTRAP_KEY, bootstrapSecret);
   } else {
     localStorage.removeItem(BOOTSTRAP_KEY);
   }
   refreshSessions({ autoAttach: true });
+  setSettingsOpen(false);
 });
 
 fontSelect?.addEventListener("change", () => {
