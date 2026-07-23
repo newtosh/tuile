@@ -241,11 +241,19 @@
     </div>
     <footer id="status-bar">
       <div class="status-zoom" role="group" aria-label="Viewport zoom">
+        <span id="zoom-level" class="status-zoom-value" aria-live="polite">100%</span>
+        <button
+          id="zoom-fit"
+          type="button"
+          class="status-btn status-zoom-fit is-active"
+          title="Fit terminal to viewport"
+          aria-pressed="true"
+        >
+          <span id="zoom-fit-icon" class="icon-slot"></span>
+          <span class="status-zoom-fit-label">Fit</span>
+        </button>
         <button id="zoom-out" type="button" class="status-btn" title="Zoom out (−)">
           <span id="zoom-out-icon" class="icon-slot"></span>
-        </button>
-        <button id="zoom-reset" type="button" class="status-btn status-zoom-value" title="Reset zoom">
-          100%
         </button>
         <button id="zoom-in" type="button" class="status-btn" title="Zoom in (+)">
           <span id="zoom-in-icon" class="icon-slot"></span>

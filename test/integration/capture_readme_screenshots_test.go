@@ -69,6 +69,7 @@ func TestCaptureREADMEScreenshots(t *testing.T) {
 	boot := string(srv.Boot)
 	setup := fmt.Sprintf(`(async () => {
 		localStorage.setItem('tuile_bootstrap', %q);
+		localStorage.setItem('tuile_zoom_mode', 'manual');
 		localStorage.setItem('tuile_zoom', '1');
 	})()`, boot)
 
@@ -112,8 +113,6 @@ func TestCaptureREADMEScreenshots(t *testing.T) {
 		shot("viewer-export-dialog.png"),
 
 		chromedp.Click("#export-close", chromedp.ByID),
-		chromedp.Sleep(300*time.Millisecond),
-		chromedp.Click("#zoom-reset", chromedp.ByID),
 		chromedp.Sleep(600*time.Millisecond),
 		shot("viewer-observe-100.png"),
 

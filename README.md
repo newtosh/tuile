@@ -34,14 +34,14 @@ Typical uses:
 
 ```bash
 # CLI (pin a release tag in production scripts)
-go install github.com/newtosh/tuile/cmd/tuile@v0.2.2
+go install github.com/newtosh/tuile/cmd/tuile@v0.3.0
 tuile version
 
 # Or download binaries from GitHub Releases
 # https://github.com/newtosh/tuile/releases
 ```
 
-**Downstream Go projects:** `go get github.com/newtosh/tuile@v0.2.2` and import `github.com/newtosh/tuile/testkit` — see [docs/testing-with-tuile.md](docs/testing-with-tuile.md).
+**Downstream Go projects:** `go get github.com/newtosh/tuile@v0.3.0` and import `github.com/newtosh/tuile/testkit` — see [docs/testing-with-tuile.md](docs/testing-with-tuile.md).
 
 ## How it works
 

@@ -152,6 +152,8 @@ header {
   align-items: center;
   gap: 0.65rem;
   min-width: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
   min-height: var(--header-row);
 }
 
@@ -159,7 +161,9 @@ header {
   display: flex;
   align-items: baseline;
   gap: 0.45rem;
-  flex-shrink: 0;
+  min-width: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
 }
 
 .brand-mark {
@@ -178,7 +182,11 @@ header {
   letter-spacing: 0.04em;
   color: var(--muted);
   text-transform: lowercase;
-  flex-shrink: 0;
+  min-width: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   user-select: none;
 }
 
@@ -187,6 +195,7 @@ header {
   display: flex;
   align-items: center;
   gap: 0.35rem;
+  flex-shrink: 0;
   min-height: var(--header-row);
 }
 
@@ -350,6 +359,28 @@ header {
   background: var(--observe-dim);
 }
 
+#session-panel-toggle.is-viewport-hint {
+  border-color: color-mix(in srgb, var(--observe) 55%, var(--border));
+  color: var(--observe);
+  background: var(--observe-dim);
+  animation: viewport-hint-pulse 2.4s ease-in-out infinite;
+}
+
+#session-panel-toggle-icon svg {
+  transition: transform 0.2s ease;
+}
+
+@keyframes viewport-hint-pulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 transparent;
+  }
+
+  50% {
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--observe) 40%, transparent);
+  }
+}
+
 .icon-slot {
   display: inline-flex;
   align-items: center;
@@ -424,6 +455,11 @@ header h1 {
   line-height: 1;
   letter-spacing: 0.06em;
   text-transform: uppercase;
+  flex-shrink: 0;
+}
+
+#mode-badge {
+  flex-shrink: 0;
 }
 
 .badge {
@@ -1144,6 +1180,43 @@ html[data-appearance="light"] #terminal-wrap,
   flex-shrink: 0;
 }
 
+.status-zoom-value {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 3.25rem;
+  height: 1.85rem;
+  padding: 0 0.4rem;
+  font-family: var(--font-mono);
+  font-size: 0.8125rem;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  color: var(--muted);
+}
+
+.status-zoom-value.is-custom {
+  color: var(--observe);
+}
+
+.status-zoom-fit {
+  gap: 0.3rem;
+  padding: 0 0.55rem;
+  min-width: auto;
+}
+
+.status-zoom-fit-label {
+  font-family: var(--font-ui);
+  font-size: 0.75rem;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+}
+
+.status-zoom-fit.is-active {
+  color: var(--observe);
+  border-color: color-mix(in srgb, var(--observe) 35%, var(--border));
+  background: var(--observe-dim);
+}
+
 .status-btn {
   display: inline-flex;
   align-items: center;
@@ -1162,17 +1235,6 @@ html[data-appearance="light"] #terminal-wrap,
 .status-btn:hover:not(:disabled) {
   color: var(--text);
   border-color: var(--border);
-}
-
-.status-zoom-value {
-  min-width: 3.25rem;
-  font-weight: 500;
-  letter-spacing: 0.02em;
-}
-
-.status-zoom-value.is-custom {
-  color: var(--observe);
-  border-color: color-mix(in srgb, var(--observe) 35%, var(--border));
 }
 
 .status-message {
@@ -1281,6 +1343,14 @@ html[data-appearance="light"] #terminal-wrap,
   .appearance-hint {
     transition: none;
   }
+
+  #session-panel-toggle.is-viewport-hint {
+    animation: none;
+  }
+
+  #session-panel-toggle-icon svg {
+    transition: none;
+  }
 }
 
 .appearance-hint-icon {
@@ -1328,6 +1398,13 @@ html[data-appearance="light"] #terminal-wrap,
   color: var(--text);
 }
 
+@media (max-width: 900px) {
+  #layout {
+    gap: 0.45rem;
+    padding: 0.45rem;
+  }
+}
+
 @media (max-width: 720px) {
   .appearance-hint {
     top: auto;
@@ -1350,6 +1427,10 @@ html[data-appearance="light"] #terminal-wrap,
   #session-panel {
     width: 100%;
     max-height: 12rem;
+  }
+
+  #session-panel-toggle-icon svg {
+    transform: rotate(-90deg);
   }
 
   .status-message {

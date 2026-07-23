@@ -63,7 +63,8 @@ const statusBar = document.getElementById("status-bar");
 const statusMessage = document.getElementById("status-message");
 const zoomOutBtn = document.getElementById("zoom-out");
 const zoomInBtn = document.getElementById("zoom-in");
-const zoomResetBtn = document.getElementById("zoom-reset");
+const zoomFitBtn = document.getElementById("zoom-fit");
+const zoomLevelEl = document.getElementById("zoom-level");
 const takeoverBtn = document.getElementById("takeover");
 const releaseBtn = document.getElementById("release");
 const reconnectBtn = document.getElementById("reconnect");
@@ -126,12 +127,16 @@ const DEFAULT_FONT_SIZE = 20;
 let observeBaseFont = DEFAULT_FONT_SIZE;
 const OBSERVE_FONT_MIN = 14;
 const OBSERVE_FONT_MAX = 64;
-const OBSERVE_VIEW_INSET = 4;
+const OBSERVE_VIEW_INSET = 8;
 const GRID_FRAME_PAD = 14;
+const STAGE_FRAME_SHADOW_PAD = 6;
+const GRID_LABEL_RESERVE = { right: 72, bottom: 32 };
 const ZOOM_KEY = "tuile_zoom";
+const ZOOM_MODE_KEY = "tuile_zoom_mode";
 const ZOOM_MIN = 0.5;
 const ZOOM_MAX = 1;
 const ZOOM_STEP = 0.05;
+const NARROW_VIEWPORT_PX = 900;
 const WEBGL_KEY = "tuile_webgl";
 const LEGACY_LIGATURES_KEY = "tuile_ligatures";
 const APP_APPEARANCE_KEY = "tuile_app_appearance";
@@ -140,7 +145,11 @@ const FONT_FAMILY_KEY = "tuile_font_family";
 const SESSION_PANEL_COLLAPSED_KEY = "tuile_session_panel_collapsed";
 const APPEARANCE_HINT_DISMISS_PREFIX = "tuile_appearance_hint_dismiss";
 const DEFAULT_FONT_FAMILY = "'JetBrainsMono Nerd Font', monospace";
-let observeZoom = clampZoom(parseFloat(localStorage.getItem(ZOOM_KEY)) || 1);
+let zoomMode = localStorage.getItem(ZOOM_MODE_KEY) === "manual" ? "manual" : "fit";
+let observeZoom =
+  zoomMode === "manual" ? clampZoom(parseFloat(localStorage.getItem(ZOOM_KEY)) || 1) : 1;
+let narrowViewportActive = false;
+let userOpenedPanelOnNarrow = false;
 let fontSizeMode = localStorage.getItem(FONT_SIZE_KEY) || "20";
 
 if (params.get("bootstrap")) {
@@ -443,6 +452,7 @@ async function initAppVersion() {
   }
   if (label) {
     appVersionEl.textContent = label;
+    appVersionEl.title = label;
     appVersionEl.hidden = false;
   }
 }
@@ -617,10 +627,24 @@ function clampZoom(value) {
   return Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, Math.round(value / ZOOM_STEP) * ZOOM_STEP));
 }
 
-function setObserveZoom(value, { persist = true, relayout = true } = {}) {
-  observeZoom = clampZoom(value);
-  if (persist) {
-    localStorage.setItem(ZOOM_KEY, String(observeZoom));
+function setObserveZoom(value, { persist = true, relayout = true, mode = null } = {}) {
+  if (mode) {
+    zoomMode = mode;
+    if (persist) {
+      localStorage.setItem(ZOOM_MODE_KEY, zoomMode);
+    }
+  }
+  if (zoomMode === "manual") {
+    observeZoom = clampZoom(value);
+    if (persist) {
+      localStorage.setItem(ZOOM_KEY, String(observeZoom));
+    }
+  } else if (relayout) {
+    scheduleTerminalLayout();
+    return;
+  } else {
+    const { targetW, targetH } = observeStageLayout();
+    observeZoom = computeFitZoom(targetW, targetH);
   }
   updateZoomControl();
   if (relayout) {
@@ -629,11 +653,61 @@ function setObserveZoom(value, { persist = true, relayout = true } = {}) {
 }
 
 function updateZoomControl() {
-  const pct = Math.round(observeZoom * 100);
-  zoomResetBtn.textContent = `${pct}%`;
-  zoomResetBtn.classList.toggle("is-custom", Math.abs(observeZoom - 1) > 0.001);
+  const pct = Math.round(observeZoomScale() * 100);
+  if (zoomLevelEl) {
+    zoomLevelEl.textContent = `${pct}%`;
+    const manual = zoomMode === "manual";
+    zoomLevelEl.classList.toggle("is-custom", manual && Math.abs(observeZoom - 1) > 0.001);
+  }
+  if (zoomFitBtn) {
+    const fitActive = zoomMode === "fit";
+    zoomFitBtn.classList.toggle("is-active", fitActive);
+    zoomFitBtn.setAttribute("aria-pressed", String(fitActive));
+  }
   zoomOutBtn.disabled = observeZoom <= ZOOM_MIN + 0.001;
   zoomInBtn.disabled = observeZoom >= ZOOM_MAX - 0.001;
+}
+
+function isNarrowViewport() {
+  return window.innerWidth <= NARROW_VIEWPORT_PX;
+}
+
+function setSessionPanelToggleHint(show) {
+  sessionPanelToggle?.classList.toggle("is-viewport-hint", show);
+}
+
+function syncSessionPanelForViewport() {
+  const narrow = isNarrowViewport();
+  if (narrow) {
+    if (!narrowViewportActive) {
+      narrowViewportActive = true;
+      userOpenedPanelOnNarrow = false;
+    }
+    const expanded = !layoutEl?.classList.contains("session-panel-collapsed");
+    if (expanded && !userOpenedPanelOnNarrow) {
+      setSessionPanelCollapsed(true, { persist: false });
+      setSessionPanelToggleHint(true);
+    } else if (!expanded) {
+      setSessionPanelToggleHint(!userOpenedPanelOnNarrow);
+    }
+    return;
+  }
+  if (narrowViewportActive) {
+    narrowViewportActive = false;
+    userOpenedPanelOnNarrow = false;
+    setSessionPanelToggleHint(false);
+    setSessionPanelCollapsed(initialSessionPanelCollapsed(), { persist: false });
+  }
+}
+
+function initSessionPanelLayout() {
+  if (isNarrowViewport()) {
+    narrowViewportActive = true;
+    setSessionPanelCollapsed(true, { persist: false });
+    setSessionPanelToggleHint(true);
+    return;
+  }
+  setSessionPanelCollapsed(initialSessionPanelCollapsed(), { persist: false });
 }
 
 function initialSessionPanelCollapsed() {
@@ -1382,9 +1456,7 @@ function updateGridFrame(layout = null) {
     hideGridFrame();
     return;
   }
-  const inset = OBSERVE_VIEW_INSET;
-  const viewW = terminalWrap.clientWidth - inset * 2;
-  const viewH = terminalWrap.clientHeight - inset * 2;
+  const { inset, viewW, viewH } = observeStageLayout();
   const left = inset + (viewW - width) / 2;
   const top = inset + (viewH - height) / 2;
   const frameLeft = left - GRID_FRAME_PAD;
@@ -1413,9 +1485,7 @@ function positionObserveTerminal() {
   }
 
   const layoutOnce = () => {
-    const inset = OBSERVE_VIEW_INSET;
-    const viewW = terminalWrap.clientWidth - inset * 2;
-    const viewH = terminalWrap.clientHeight - inset * 2;
+    const { inset, viewW, viewH } = observeStageLayout();
     const zoom = observeZoomScale();
 
     clearObserveGridInlineSizes();
@@ -1469,18 +1539,41 @@ function maxFontForTarget(targetW, targetH, { cap } = {}) {
   return refineObserveFontSize(best, targetW, targetH);
 }
 
+function observeStageLayout() {
+  const inset = OBSERVE_VIEW_INSET;
+  const frameMargin = GRID_FRAME_PAD + STAGE_FRAME_SHADOW_PAD;
+  const wrapW = Math.max(1, terminalWrap?.clientWidth ?? 1);
+  const wrapH = Math.max(1, terminalWrap?.clientHeight ?? 1);
+  const viewW = Math.max(1, wrapW - inset * 2);
+  const viewH = Math.max(1, wrapH - inset * 2);
+  const targetW = Math.max(1, viewW - frameMargin * 2 - GRID_LABEL_RESERVE.right);
+  const targetH = Math.max(1, viewH - frameMargin * 2 - GRID_LABEL_RESERVE.bottom);
+  return { inset, viewW, viewH, targetW, targetH, frameMargin };
+}
+
+function computeFitZoom(targetW, targetH) {
+  const grid = measureTerminalGrid();
+  if (!grid.width || !grid.height) {
+    return 1;
+  }
+  return clampZoom(Math.min(targetW / grid.width, targetH / grid.height));
+}
+
 function fitObserveLayout() {
   clearTerminalTransform();
-  const inset = OBSERVE_VIEW_INSET;
-  const viewW = Math.max(1, terminalWrap.clientWidth - inset * 2);
-  const viewH = Math.max(1, terminalWrap.clientHeight - inset * 2);
+  const { targetW, targetH } = observeStageLayout();
 
   const preferredCap =
     fontSizeMode === "auto"
       ? OBSERVE_FONT_MAX
       : parseInt(fontSizeMode, 10) || DEFAULT_FONT_SIZE;
 
-  const best = maxFontForTarget(viewW, viewH, { cap: preferredCap });
+  const best = maxFontForTarget(targetW, targetH, { cap: preferredCap });
+
+  if (zoomMode === "fit") {
+    observeZoom = computeFitZoom(targetW, targetH);
+    updateZoomControl();
+  }
 
   positionObserveTerminal();
   return { fontSize: best };
@@ -2309,6 +2402,7 @@ webglToggle.addEventListener("change", () => {
 });
 
 window.addEventListener("resize", () => {
+  syncSessionPanelForViewport();
   scheduleTerminalLayout();
 });
 
@@ -2317,20 +2411,31 @@ new ResizeObserver(() => {
 }).observe(terminalWrap);
 
 zoomOutBtn.addEventListener("click", () => {
-  setObserveZoom(observeZoom - ZOOM_STEP);
+  const base = zoomMode === "fit" ? observeZoomScale() : observeZoom;
+  setObserveZoom(base - ZOOM_STEP, { mode: "manual" });
 });
 
 zoomInBtn.addEventListener("click", () => {
-  setObserveZoom(observeZoom + ZOOM_STEP);
+  const base = zoomMode === "fit" ? observeZoomScale() : observeZoom;
+  setObserveZoom(base + ZOOM_STEP, { mode: "manual" });
 });
 
-zoomResetBtn.addEventListener("click", () => {
-  setObserveZoom(1);
+zoomFitBtn?.addEventListener("click", () => {
+  setObserveZoom(observeZoom, { mode: "fit" });
 });
 
-setSessionPanelCollapsed(initialSessionPanelCollapsed(), { persist: false });
+initSessionPanelLayout();
 sessionPanelToggle?.addEventListener("click", () => {
-  setSessionPanelCollapsed(layoutEl?.classList.contains("session-panel-collapsed") !== true);
+  const collapsed = layoutEl?.classList.contains("session-panel-collapsed") === true;
+  const nextCollapsed = !collapsed;
+  if (!nextCollapsed && isNarrowViewport()) {
+    userOpenedPanelOnNarrow = true;
+    setSessionPanelToggleHint(false);
+  } else if (nextCollapsed && isNarrowViewport()) {
+    userOpenedPanelOnNarrow = false;
+    setSessionPanelToggleHint(true);
+  }
+  setSessionPanelCollapsed(nextCollapsed);
 });
 
 document.addEventListener("keydown", (ev) => {
@@ -2340,8 +2445,8 @@ document.addEventListener("keydown", (ev) => {
   }
   const zoomOut = ev.key === "-" || ev.key === "_";
   const zoomIn = ev.key === "=" || ev.key === "+";
-  const zoomReset = ev.key === "0";
-  if (!zoomOut && !zoomIn && !zoomReset) {
+  const zoomFit = ev.key === "0";
+  if (!zoomOut && !zoomIn && !zoomFit) {
     return;
   }
   if (controlling) {
@@ -2353,11 +2458,13 @@ document.addEventListener("keydown", (ev) => {
   }
   ev.preventDefault();
   if (zoomOut) {
-    setObserveZoom(observeZoom - ZOOM_STEP);
+    const base = zoomMode === "fit" ? observeZoomScale() : observeZoom;
+    setObserveZoom(base - ZOOM_STEP, { mode: "manual" });
   } else if (zoomIn) {
-    setObserveZoom(observeZoom + ZOOM_STEP);
+    const base = zoomMode === "fit" ? observeZoomScale() : observeZoom;
+    setObserveZoom(base + ZOOM_STEP, { mode: "manual" });
   } else {
-    setObserveZoom(1);
+    setObserveZoom(observeZoom, { mode: "fit" });
   }
 });
 

@@ -33,7 +33,7 @@ const observeZoomMetricsJS = `(() => {
 	const rect = term?.getBoundingClientRect();
 	return {
 		observeMode: wrap?.classList.contains('observe-mode') ?? false,
-		zoom: document.getElementById('zoom-reset')?.textContent?.trim() ?? '',
+		zoom: document.getElementById('zoom-level')?.textContent?.trim() ?? '',
 		status: document.getElementById('status-message')?.textContent?.trim() ?? '',
 		screenW: screen?.offsetWidth ?? 0,
 		screenH: screen?.offsetHeight ?? 0,
@@ -96,6 +96,7 @@ func TestViewerObserveZoomChangesTerminalSize(t *testing.T) {
 
 	setup := fmt.Sprintf(`(async () => {
 		localStorage.setItem('tuile_bootstrap', %q);
+		localStorage.setItem('tuile_zoom_mode', 'manual');
 		localStorage.setItem('tuile_zoom', '1');
 		localStorage.setItem('tuile_font_size', '20');
 	})()`, string(srv.Boot))
@@ -161,18 +162,15 @@ func TestViewerObserveZoomChangesTerminalSize(t *testing.T) {
 			baseArea, belowArea, baseline, zoomedBelow)
 	}
 
-	if err := chromedp.Run(ctx, chromedp.Click("#zoom-reset", chromedp.ByID)); err != nil {
-		t.Fatalf("click zoom reset: %v", err)
+	if err := chromedp.Run(ctx, chromedp.Click("#zoom-fit", chromedp.ByID)); err != nil {
+		t.Fatalf("click zoom fit: %v", err)
 	}
 	time.Sleep(300 * time.Millisecond)
 
 	reset := readObserveZoomMetrics(t, ctx)
-	if reset.Zoom != "100%" {
-		t.Fatalf("expected zoom reset to 100%%, got %q", reset.Zoom)
-	}
 	resetArea := terminalPixelArea(reset)
-	if resetArea < baseArea*0.95 || resetArea > baseArea*1.05 {
-		t.Fatalf("zoom reset did not return near baseline size (base=%.0f reset=%.0f): %+v",
-			baseArea, resetArea, reset)
+	if resetArea <= belowArea*1.05 {
+		t.Fatalf("fit did not expand terminal from manual 70%% zoom (70%%=%.0f fit=%.0f): %+v",
+			belowArea, resetArea, reset)
 	}
 }
