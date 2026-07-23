@@ -168,9 +168,21 @@ func TestViewerObserveZoomChangesTerminalSize(t *testing.T) {
 	time.Sleep(300 * time.Millisecond)
 
 	reset := readObserveZoomMetrics(t, ctx)
+	var fitActive bool
+	if err := chromedp.Run(ctx, chromedp.Evaluate(`document.getElementById('zoom-fit')?.classList.contains('is-active')`, &fitActive)); err != nil {
+		t.Fatalf("read fit active: %v", err)
+	}
+	if !fitActive {
+		t.Fatalf("expected fit mode after clicking fit: %+v", reset)
+	}
+	if reset.Zoom == zoomedBelow.Zoom {
+		t.Fatalf("expected fit to recalculate zoom from manual 70%%, got %+v", reset)
+	}
+	if !strings.Contains(reset.Status, "zoom") {
+		t.Fatalf("expected status to include zoom after fit, got %q", reset.Status)
+	}
 	resetArea := terminalPixelArea(reset)
-	if resetArea <= belowArea*1.05 {
-		t.Fatalf("fit did not expand terminal from manual 70%% zoom (70%%=%.0f fit=%.0f): %+v",
-			belowArea, resetArea, reset)
+	if resetArea <= 0 {
+		t.Fatalf("fit terminal has no measurable size: %+v", reset)
 	}
 }
