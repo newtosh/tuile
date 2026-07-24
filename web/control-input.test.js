@@ -23,6 +23,8 @@ describe("encodeControlKey", () => {
     assert.equal(encodeControlKey(keyEvent({ key: "Enter" })), "\r");
     assert.equal(encodeControlKey(keyEvent({ key: "Backspace" })), "\x7f");
     assert.equal(encodeControlKey(keyEvent({ key: "ArrowUp" })), "\x1b[A");
+    assert.equal(encodeControlKey(keyEvent({ key: "Tab" })), "\t");
+    assert.equal(encodeControlKey(keyEvent({ key: "Tab", shiftKey: true })), "\x1b[Z");
   });
 
   it("encodes emacs/shell ctrl sequences", () => {
