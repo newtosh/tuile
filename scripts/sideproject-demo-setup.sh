@@ -78,8 +78,8 @@ if ! curl -sf "$BASE/health" >/dev/null; then
 fi
 
 VER="$(curl -sf "$BASE/version" | jq -r '.version // empty')"
-if [[ "$VER" != "v0.3.0" ]]; then
-  echo "warning: server reports $VER (expected v0.3.0 for viewer badge)" >&2
+if [[ "$VER" != "v0.3.1" ]]; then
+  echo "warning: server reports $VER (expected v0.3.1 for viewer badge)" >&2
 fi
 
 prune_sessions() {
