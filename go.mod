@@ -8,7 +8,7 @@ require (
 	github.com/chromedp/chromedp v0.16.0
 	github.com/coder/websocket v1.8.15
 	github.com/creack/pty v1.1.24
-	github.com/mark3labs/mcp-go v0.56.0
+	github.com/mark3labs/mcp-go v0.57.0
 	github.com/pelletier/go-toml/v2 v2.4.3
 	golang.org/x/image v0.44.0
 )
