@@ -8,6 +8,7 @@ import (
 	imagedraw "image/draw"
 	"image/png"
 	"io"
+	"strings"
 
 	"github.com/newtosh/tuile/internal/term"
 	"golang.org/x/image/draw"
@@ -467,8 +468,9 @@ func drawTerminal(img *image.RGBA, snap term.ScreenSnapshot, layout Layout, opts
 				bg := parseColor(cell.Bg, false).(color.RGBA)
 				fillRect(img, xOff, yOff, layout.CellW, layout.CellH, bg)
 				fg := parseColor(cell.Fg, true).(color.RGBA)
-				if cell.Ch != "" && cell.Ch != " " {
-					drawText(img, face, cell.Ch, xOff+cellTextX(layout.CellW, face, cell.Ch), yOff+cellTextY(layout.CellH), fg, false)
+				ch := sanitizeGlyphs(face, cell.Ch)
+				if ch != "" && ch != " " {
+					drawText(img, face, ch, xOff+cellTextX(layout.CellW, face, ch), yOff+cellTextY(layout.CellH), fg, false)
 				}
 				xOff += layout.CellW
 			}
@@ -477,9 +479,35 @@ func drawTerminal(img *image.RGBA, snap term.ScreenSnapshot, layout Layout, opts
 	}
 	fg := color.RGBA{201, 209, 217, 255}
 	for y, line := range snap.Lines {
-		drawText(img, face, line, layout.TermOffsetX+2, layout.TermOffsetY+y*layout.CellH+cellTextY(layout.CellH), fg, false)
+		drawText(img, face, sanitizeGlyphs(face, line), layout.TermOffsetX+2, layout.TermOffsetY+y*layout.CellH+cellTextY(layout.CellH), fg, false)
 	}
 	return nil
+}
+
+// ASCII stand-ins when gomono GlyphAdvance fails.
+var boxDrawingFallback = map[rune]rune{
+	'━': '-', '┃': '|',
+	'┏': '+', '┓': '+', '┗': '+', '┛': '+',
+	'▸': '>', '▹': '>', '‣': '>',
+	'✓': 'v', '✔': 'v',
+}
+
+// sanitizeGlyphs replaces glyphs the face can't render with ASCII look-alikes
+// (or a blank space) so PNG export doesn't emit tofu boxes.
+func sanitizeGlyphs(face font.Face, s string) string {
+	var b strings.Builder
+	for _, r := range s {
+		if _, ok := face.GlyphAdvance(r); ok {
+			b.WriteRune(r)
+			continue
+		}
+		if fb, ok := boxDrawingFallback[r]; ok {
+			b.WriteRune(fb)
+			continue
+		}
+		b.WriteByte(' ')
+	}
+	return b.String()
 }
 
 func cellTextX(cellW int, face font.Face, ch string) int {
