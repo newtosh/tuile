@@ -8,6 +8,7 @@ import (
 	imagedraw "image/draw"
 	"image/png"
 	"io"
+	"strings"
 
 	"github.com/newtosh/tuile/internal/term"
 	"golang.org/x/image/draw"
@@ -467,8 +468,9 @@ func drawTerminal(img *image.RGBA, snap term.ScreenSnapshot, layout Layout, opts
 				bg := parseColor(cell.Bg, false).(color.RGBA)
 				fillRect(img, xOff, yOff, layout.CellW, layout.CellH, bg)
 				fg := parseColor(cell.Fg, true).(color.RGBA)
-				if cell.Ch != "" && cell.Ch != " " {
-					drawText(img, face, cell.Ch, xOff+cellTextX(layout.CellW, face, cell.Ch), yOff+cellTextY(layout.CellH), fg, false)
+				ch := sanitizeGlyph(face, cell.Ch)
+				if ch != "" && ch != " " {
+					drawText(img, face, ch, xOff+cellTextX(layout.CellW, face, ch), yOff+cellTextY(layout.CellH), fg, false)
 				}
 				xOff += layout.CellW
 			}
@@ -477,9 +479,53 @@ func drawTerminal(img *image.RGBA, snap term.ScreenSnapshot, layout Layout, opts
 	}
 	fg := color.RGBA{201, 209, 217, 255}
 	for y, line := range snap.Lines {
-		drawText(img, face, line, layout.TermOffsetX+2, layout.TermOffsetY+y*layout.CellH+cellTextY(layout.CellH), fg, false)
+		drawText(img, face, sanitizeGlyphs(face, line), layout.TermOffsetX+2, layout.TermOffsetY+y*layout.CellH+cellTextY(layout.CellH), fg, false)
 	}
 	return nil
+}
+
+// boxDrawingFallback maps box-drawing/TUI marker glyphs gomono (the raster
+// export's embedded font — see monoFace) doesn't cover to an ASCII
+// look-alike. gomono covers the light box-drawing set (─│┌┐└┘├┤┬┴┼) and a
+// few symbols (•●○►) directly — only listed here where GlyphAdvance
+// genuinely returns !ok, confirmed against the actual embedded font. The
+// live browser viewer uses a full Nerd Font and doesn't need this; the
+// raster PNG/JPEG export path does its own font rendering with a much
+// narrower glyph set.
+var boxDrawingFallback = map[rune]string{
+	'━': "-", '┃': "|",
+	'┏': "+", '┓': "+", '┗': "+", '┛': "+",
+	'▸': ">", '▹': ">", '‣': ">",
+	'✓': "v", '✔': "v",
+}
+
+// sanitizeGlyph returns ch unchanged if face has a real glyph for it.
+// Otherwise it returns a known ASCII fallback, or a blank space if none is
+// known — a blank cell is a less confusing failure than an unreadable tofu
+// box, and matches how a real terminal renders truly-missing glyphs.
+func sanitizeGlyph(face font.Face, ch string) string {
+	r := []rune(ch)
+	if len(r) != 1 {
+		return ch
+	}
+	if _, ok := face.GlyphAdvance(r[0]); ok {
+		return ch
+	}
+	if fallback, ok := boxDrawingFallback[r[0]]; ok {
+		return fallback
+	}
+	return " "
+}
+
+// sanitizeGlyphs applies sanitizeGlyph rune-by-rune across a whole line, for
+// the snap.Lines fallback path (used when a structured cell Grid isn't
+// available).
+func sanitizeGlyphs(face font.Face, line string) string {
+	var b strings.Builder
+	for _, r := range line {
+		b.WriteString(sanitizeGlyph(face, string(r)))
+	}
+	return b.String()
 }
 
 func cellTextX(cellW int, face font.Face, ch string) int {
